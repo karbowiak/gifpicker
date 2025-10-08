@@ -36,7 +36,8 @@ jobs:
         run: bun install
 
       - name: Run tests (if any)
-        run: bun test || echo "No tests configured"
+        run: bun test || true
+        continue-on-error: true
 
       - name: Build Tauri app
         run: bun run tauri build
