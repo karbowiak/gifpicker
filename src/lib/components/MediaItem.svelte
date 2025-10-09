@@ -16,9 +16,11 @@
   let imageLoaded = false;
   let imageError = false;
   let imageUrl = '';
+  let imageElement: HTMLImageElement | HTMLVideoElement;
   let containerElement: HTMLDivElement;
   let observer: IntersectionObserver;
   let hasLoadedOnce = false; // Track if we've tried loading
+  let isInView = false; // Track if currently in viewport
 
   // Cache for data URLs to avoid reloading
   const dataUrlCache = new Map<string, string>();
@@ -40,6 +42,20 @@
     if (isLocalFavorite) {
       const favorite = item as Favorite;
 
+      // Prefer MP4 for display if available (much better performance)
+      if (favorite.mp4_filepath) {
+        try {
+          const assetUrl = convertFileSrc(favorite.mp4_filepath);
+          imageUrl = assetUrl;
+          dataUrlCache.set(favorite.mp4_filepath, assetUrl);
+          return;
+        } catch (error) {
+          console.error('Failed to convert MP4 to asset URL:', error);
+          // Fall through to try GIF
+        }
+      }
+
+      // Fall back to GIF
       if (favorite.filepath) {
         // Check cache first
         if (dataUrlCache.has(favorite.filepath)) {
@@ -68,23 +84,39 @@
         imageError = true;
       }
     } else {
-      // For Giphy search results, use URL directly
-      imageUrl = (item as GiphyGifResult).gif_url;
+      // For Giphy search results, prefer MP4 (better performance), fallback to GIF
+      const giphyResult = item as GiphyGifResult;
+      imageUrl = giphyResult.mp4_url || giphyResult.gif_url;
     }
   }
 
   onMount(() => {
-    // Set up Intersection Observer for lazy loading
+    // Set up Intersection Observer for lazy loading and viewport tracking
     observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
+          isInView = entry.isIntersecting;
+
+          // Load image when coming into view (with buffer)
           if (entry.isIntersecting && !hasLoadedOnce) {
             loadImageUrl();
+          }
+
+          // Performance optimization: Hide image when far out of view
+          // This helps reduce GPU/CPU usage for GIF rendering
+          if (imageElement) {
+            if (entry.isIntersecting || entry.intersectionRatio > 0) {
+              // In or near viewport - show image
+              imageElement.style.visibility = 'visible';
+            } else {
+              // Far from viewport - hide but keep space (better than display:none)
+              imageElement.style.visibility = 'hidden';
+            }
           }
         });
       },
       {
-        rootMargin: '200px', // Load well before visible for smoother scrolling
+        rootMargin: '400px', // Large buffer for smooth experience
         threshold: 0.01
       }
     );
@@ -202,6 +234,7 @@
 
       await invoke('add_giphy_favorite', {
         gifUrl: giphyResult.gif_url,
+        mp4Url: giphyResult.mp4_url || null, // Pass MP4 URL if available
         sourceId: giphyResult.id,
         sourceUrl: giphyResult.url,
         title: giphyResult.title || 'Untitled',
@@ -247,14 +280,33 @@
         <p>Failed to load</p>
       </div>
     {:else if imageUrl}
-      <img
-        src={imageUrl}
-        alt={title}
-        class="media-image"
-        class:loaded={imageLoaded}
-        on:load={handleImageLoad}
-        on:error={handleImageError}
-      />
+      {#if (isLocalFavorite && (item as Favorite).mp4_filepath) || (!isLocalFavorite && (item as GiphyGifResult).mp4_url)}
+        <!-- Use video element for MP4 (much better performance) -->
+        <video
+          bind:this={imageElement}
+          src={imageUrl}
+          title={title}
+          class="media-image"
+          class:loaded={imageLoaded}
+          autoplay
+          loop
+          muted
+          playsinline
+          on:loadeddata={handleImageLoad}
+          on:error={handleImageError}
+        ></video>
+      {:else}
+        <!-- Use img element for GIFs (fallback) -->
+        <img
+          bind:this={imageElement}
+          src={imageUrl}
+          alt={title}
+          class="media-image"
+          class:loaded={imageLoaded}
+          on:load={handleImageLoad}
+          on:error={handleImageError}
+        />
+      {/if}
     {/if}    {#if isLoading}
       <div class="loading-overlay">
         <div class="spinner"></div>

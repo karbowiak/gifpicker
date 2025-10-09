@@ -7,7 +7,7 @@
   import Toast from '$lib/components/Toast.svelte';
   import ContextMenu from '$lib/components/ContextMenu.svelte';
   import Settings from '$lib/components/Settings.svelte';
-  import { searchResults, searchQuery } from '$lib/stores/search';
+  import { searchResults, searchQuery, loadMoreResults, isLoadingMore } from '$lib/stores/search';
   import { favorites } from '$lib/stores/favorites';
   import { settings } from '$lib/stores/settings';
   import { selectedIndex, showToast, showSettings } from '$lib/stores/ui';
@@ -17,29 +17,50 @@
   let allItems: (Favorite | GiphyGifResult)[] = [];
   let isLoading = true;
   let searchBarComponent: SearchBar;
+  let hasSearchQuery = false;
 
   // Combine search results
   $: {
     const items: (Favorite | GiphyGifResult)[] = [];
+    const previousLength = allItems.length;
 
-    // Add local results
-    if ($searchResults.local && $searchResults.local.length > 0) {
-      items.push(...$searchResults.local);
+    // Track if we have a search query
+    hasSearchQuery = !!$searchQuery.trim();
+
+    // When searching, ONLY show Giphy results (no favorites)
+    if (hasSearchQuery) {
+      if ($searchResults.giphy && $searchResults.giphy.gifs && $searchResults.giphy.gifs.length > 0) {
+        items.push(...$searchResults.giphy.gifs);
+      }
+    } else {
+      // No search query - show favorites only
+      if ($searchResults.local && $searchResults.local.length > 0) {
+        items.push(...$searchResults.local);
+      }
     }
 
-    // Add Giphy results
-    if ($searchResults.giphy && $searchResults.giphy.gifs && $searchResults.giphy.gifs.length > 0) {
-      items.push(...$searchResults.giphy.gifs);
-    }
-
-    console.log('allItems updating, old length:', allItems.length, 'new length:', items.length, 'current selectedIndex:', $selectedIndex);
+    console.log('allItems updating, old length:', previousLength, 'new length:', items.length, 'current selectedIndex:', $selectedIndex);
     allItems = items;
 
-    // Reset selection when items change
-    if ($selectedIndex >= allItems.length) {
+    // Only reset selection if it's out of bounds AND we're not just adding more items (infinite scroll)
+    // If we're adding items (new length > old length), keep the current selection
+    const isLoadingMore = items.length > previousLength && previousLength > 0;
+
+    if (!isLoadingMore && $selectedIndex >= allItems.length) {
       console.log('Resetting selectedIndex from', $selectedIndex, 'to 0 because items changed');
       selectedIndex.set(0);
     }
+  }
+
+  // Handle infinite scroll - load more Giphy results
+  async function handleScrollNearEnd() {
+    // Only load more if we have a search query and we're not already loading
+    if (!hasSearchQuery || $isLoadingMore) return;
+
+    const apiKey = $settings?.giphy_api_key;
+    if (!apiKey) return;
+
+    await loadMoreResults(apiKey);
   }
 
   // Handle item click - copy GIF to clipboard
@@ -245,7 +266,18 @@
       <p>Loading...</p>
     </div>
   {:else}
-    <MasonryLayout items={allItems} onItemClick={handleItemClick} />
+    <MasonryLayout
+      items={allItems}
+      onItemClick={handleItemClick}
+      onScrollNearEnd={hasSearchQuery ? handleScrollNearEnd : undefined}
+    />
+
+    {#if $isLoadingMore}
+      <div class="loading-more">
+        <div class="spinner-small"></div>
+        <p>Loading more...</p>
+      </div>
+    {/if}
   {/if}
 
   <Toast />
@@ -344,5 +376,33 @@
   .loading-container p {
     font-size: 14px;
     font-weight: 500;
+  }
+
+  .loading-more {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 24px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 24px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 500;
+    z-index: 100;
+  }
+
+  .spinner-small {
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--bg-tertiary);
+    border-top-color: var(--accent-color);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
   }
 </style>

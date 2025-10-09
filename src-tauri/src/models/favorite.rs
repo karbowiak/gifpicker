@@ -71,6 +71,7 @@ pub struct Favorite {
     pub id: Option<i64>,
     pub filename: String,
     pub filepath: Option<String>, // Made optional - not needed for Giphy GIFs
+    pub mp4_filepath: Option<String>, // MP4 version for display (better performance)
     pub gif_url: Option<String>, // Direct GIF URL for clipboard
     pub media_type: MediaType,
     pub source: Option<Source>,
@@ -97,6 +98,7 @@ impl Favorite {
             id: None,
             filename,
             filepath,
+            mp4_filepath: None,
             gif_url: None,
             media_type,
             source: None,

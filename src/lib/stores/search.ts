@@ -14,19 +14,33 @@ export const searchResults = writable<SearchResult>({
 // Loading state
 export const isSearching = writable<boolean>(false);
 
+// Loading more state (for infinite scroll)
+export const isLoadingMore = writable<boolean>(false);
+
 // Error state
 export const searchError = writable<string | null>(null);
+
+// Current offset for pagination
+let currentOffset = 0;
+let currentQuery = '';
+let totalCount = 0;
+
+// Giphy API has a maximum offset of 4999
+const MAX_GIPHY_OFFSET = 4999;
 
 // Debounce timer
 let searchDebounceTimer: ReturnType<typeof setTimeout>;
 
-// Main search function - always searches both local favorites and Giphy
+// Main search function - only searches Giphy when there's a query
 export async function performSearch(query: string, giphyApiKey?: string) {
   // If empty query, load all favorites
   if (!query.trim()) {
     try {
       const allFavorites = await invoke<Favorite[]>('get_all_favorites');
       searchResults.set({ local: allFavorites, giphy: undefined });
+      currentQuery = '';
+      currentOffset = 0;
+      totalCount = 0;
     } catch (error) {
       console.error('Failed to load favorites:', error);
       searchResults.set({ local: [], giphy: undefined });
@@ -36,21 +50,85 @@ export async function performSearch(query: string, giphyApiKey?: string) {
 
   isSearching.set(true);
   searchError.set(null);
+  currentQuery = query;
+  currentOffset = 0;
+  totalCount = 0;
 
   try {
-    // Use combined search - searches both local and Giphy
-    const result = await invoke<SearchResult>('search_combined', {
+    // Search only Giphy (no local favorites)
+    // Start with 25 results (similar to Giphy's own interface)
+    const result = await invoke<GiphySearchResults>('search_giphy', {
       query,
-      giphyLimit: 25,
-      giphyOffset: 0,
+      limit: 25,
+      offset: 0,
       apiKey: giphyApiKey || undefined
     });
-    searchResults.set(result);
+
+    // Set results with empty local array
+    searchResults.set({
+      local: [],
+      giphy: result
+    });
+
+    totalCount = result.total_count;
+    // Set offset to the actual number of results we have
+    currentOffset = result.gifs.length;
   } catch (error) {
     console.error('Search failed:', error);
     searchError.set(error as string);
   } finally {
     isSearching.set(false);
+  }
+}
+
+// Load more results for infinite scroll
+export async function loadMoreResults(giphyApiKey?: string) {
+  // Only load more if we have a query and we're not already loading
+  if (!currentQuery || currentOffset === 0) return;
+
+  // Check if we've reached Giphy's limit or the end of results
+  if (currentOffset >= MAX_GIPHY_OFFSET || currentOffset >= totalCount) {
+    console.log('Reached end of Giphy results');
+    return;
+  }
+
+  isLoadingMore.set(true);
+
+  try {
+    // Load next batch (25 results like Giphy's interface)
+    const result = await invoke<GiphySearchResults>('search_giphy', {
+      query: currentQuery,
+      limit: 25,
+      offset: currentOffset,
+      apiKey: giphyApiKey || undefined
+    });
+
+    // If no results returned, we've reached the end
+    if (!result.gifs || result.gifs.length === 0) {
+      console.log('No more results available');
+      return;
+    }
+
+    // Append new results to existing ones
+    searchResults.update(current => {
+      const existingGifs = current.giphy?.gifs || [];
+      const newGifs = result.gifs || [];
+
+      return {
+        ...current,
+        giphy: {
+          ...result,
+          gifs: [...existingGifs, ...newGifs]
+        }
+      };
+    });
+
+    // Update offset to the actual number of GIFs we now have
+    currentOffset += result.gifs.length;
+  } catch (error) {
+    console.error('Failed to load more results:', error);
+  } finally {
+    isLoadingMore.set(false);
   }
 }
 
@@ -99,4 +177,7 @@ export function clearSearch() {
   searchQuery.set('');
   searchResults.set({ local: [], giphy: undefined });
   searchError.set(null);
+  currentQuery = '';
+  currentOffset = 0;
+  totalCount = 0;
 }

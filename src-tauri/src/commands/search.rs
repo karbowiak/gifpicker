@@ -25,6 +25,7 @@ pub struct GiphyGifResult {
     pub title: String,
     pub url: String,
     pub gif_url: String,
+    pub mp4_url: Option<String>, // MP4 for display (better performance)
     pub width: String,
     pub height: String,
 }
@@ -65,10 +66,12 @@ pub async fn search_giphy(
             id: gif.id,
             title: gif.title,
             url: gif.url,
-            // Use 'original' for actual GIF file, not 'downsized' which may return static image
+            // Use 'original' for actual GIF file (for downloading/clipboard)
             gif_url: gif.images.original.url,
-            width: gif.images.original.width,
-            height: gif.images.original.height,
+            // Use fixed_height MP4 for display (much better performance than GIF)
+            mp4_url: gif.images.fixed_height.mp4.clone(),
+            width: gif.images.fixed_height.width.clone(),
+            height: gif.images.fixed_height.height.clone(),
         })
         .collect();
 
@@ -126,10 +129,12 @@ pub async fn get_giphy_trending(
             id: gif.id,
             title: gif.title,
             url: gif.url,
-            // Use 'original' for actual GIF file, not 'downsized' which may return static image
+            // Use 'original' for actual GIF file (for downloading/clipboard)
             gif_url: gif.images.original.url,
-            width: gif.images.original.width,
-            height: gif.images.original.height,
+            // Use fixed_height MP4 for display (much better performance than GIF)
+            mp4_url: gif.images.fixed_height.mp4.clone(),
+            width: gif.images.fixed_height.width.clone(),
+            height: gif.images.fixed_height.height.clone(),
         })
         .collect();
 
@@ -144,6 +149,7 @@ pub async fn get_giphy_trending(
 pub async fn download_giphy_gif(
     giphy_id: String,
     gif_url: String,
+    mp4_url: Option<String>,
     title: String,
     width: String,
     height: String,
@@ -151,17 +157,18 @@ pub async fn download_giphy_gif(
 ) -> Result<Favorite, String> {
     let state = state.lock().await;
 
-    // Download the GIF
-    let file_path = state.downloader.download_from_giphy(&gif_url, &giphy_id)
+    // Download both GIF and MP4
+    let (gif_path, mp4_path) = state.downloader
+        .download_from_giphy(&gif_url, mp4_url.as_deref(), &giphy_id)
         .await
-        .map_err(|e| format!("Failed to download GIF: {}", e))?;
+        .map_err(|e| format!("Failed to download media: {}", e))?;
 
-    let filename = file_path.file_name()
+    let filename = gif_path.file_name()
         .unwrap()
         .to_string_lossy()
         .to_string();
 
-    let file_size = crate::services::Downloader::get_file_size(&file_path)
+    let file_size = crate::services::Downloader::get_file_size(&gif_path)
         .await
         .ok()
         .map(|s| s as i64);
@@ -173,7 +180,7 @@ pub async fn download_giphy_gif(
     // Create favorite
     let mut favorite = crate::models::Favorite::new(
         filename,
-        Some(file_path.to_string_lossy().to_string()),
+        Some(gif_path.to_string_lossy().to_string()),
         crate::models::MediaType::Gif,
     )
     .with_source(
@@ -186,6 +193,7 @@ pub async fn download_giphy_gif(
         favorite = favorite.with_dimensions(w, h);
     }
 
+    favorite.mp4_filepath = mp4_path.map(|p| p.to_string_lossy().to_string());
     favorite.file_size = file_size;
     favorite.description = Some(title);
 

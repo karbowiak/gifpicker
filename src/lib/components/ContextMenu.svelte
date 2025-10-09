@@ -5,6 +5,7 @@
   import { invoke } from '@tauri-apps/api/core';
   import { showToast } from '$lib/stores/ui';
   import { favorites } from '$lib/stores/favorites';
+  import { searchResults } from '$lib/stores/search';
   import type { Favorite, GiphyGifResult } from '$lib/types';
 
   $: show = $contextMenu.show;
@@ -76,6 +77,13 @@
       const fav = item as Favorite;
       if (fav.id) {
         await favorites.delete(fav.id);
+
+        // Update search results to remove the deleted item immediately
+        searchResults.update(current => ({
+          ...current,
+          local: current.local.filter(f => f.id !== fav.id)
+        }));
+
         showToast('Removed from favorites!', 'success');
       }
     } catch (error) {
@@ -99,6 +107,13 @@
       const fav = item as Favorite;
       if (fav.id) {
         await favorites.delete(fav.id);
+
+        // Update search results to remove the deleted item immediately
+        searchResults.update(current => ({
+          ...current,
+          local: current.local.filter(f => f.id !== fav.id)
+        }));
+
         showToast('File deleted!', 'success');
       }
     } catch (error) {

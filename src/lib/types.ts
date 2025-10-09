@@ -9,6 +9,7 @@ export interface Favorite {
   id?: number;
   filename: string;
   filepath?: string;
+  mp4_filepath?: string; // MP4 version for display (better performance)
   gif_url?: string;
   media_type: MediaType;
   source?: Source;
@@ -41,7 +42,8 @@ export interface GiphyGifResult {
   id: string;
   title: string;
   url: string;
-  gif_url: string;
+  gif_url: string; // Original GIF for downloading/clipboard
+  mp4_url?: string; // MP4 for display (better performance)
   width: string;
   height: string;
 }

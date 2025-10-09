@@ -23,15 +23,16 @@ impl<'a> FavoritesDb<'a> {
         let result = sqlx::query(
             r#"
             INSERT INTO favorites (
-                filename, filepath, gif_url, media_type, source, source_id, source_url,
+                filename, filepath, mp4_filepath, gif_url, media_type, source, source_id, source_url,
                 tags, custom_tags, description, width, height, file_size,
                 created_at, last_used, use_count
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
         )
         .bind(&favorite.filename)
         .bind(&favorite.filepath)
+        .bind(&favorite.mp4_filepath)
         .bind(&favorite.gif_url)
         .bind(favorite.media_type.to_string())
         .bind(source)
@@ -56,7 +57,7 @@ impl<'a> FavoritesDb<'a> {
     pub async fn get_by_id(&self, id: i64) -> Result<Option<Favorite>> {
         let row = sqlx::query_as::<_, FavoriteRow>(
             r#"
-            SELECT id, filename, filepath, gif_url, media_type, source, source_id, source_url,
+            SELECT id, filename, filepath, mp4_filepath, gif_url, media_type, source, source_id, source_url,
                    tags, custom_tags, description, width, height, file_size,
                    created_at, last_used, use_count
             FROM favorites
@@ -74,7 +75,7 @@ impl<'a> FavoritesDb<'a> {
     pub async fn get_all(&self) -> Result<Vec<Favorite>> {
         let rows = sqlx::query_as::<_, FavoriteRow>(
             r#"
-            SELECT id, filename, filepath, gif_url, media_type, source, source_id, source_url,
+            SELECT id, filename, filepath, mp4_filepath, gif_url, media_type, source, source_id, source_url,
                    tags, custom_tags, description, width, height, file_size,
                    created_at, last_used, use_count
             FROM favorites
@@ -93,7 +94,7 @@ impl<'a> FavoritesDb<'a> {
 
         let rows = sqlx::query_as::<_, FavoriteRow>(
             r#"
-            SELECT id, filename, filepath, gif_url, media_type, source, source_id, source_url,
+            SELECT id, filename, filepath, mp4_filepath, gif_url, media_type, source, source_id, source_url,
                    tags, custom_tags, description, width, height, file_size,
                    created_at, last_used, use_count
             FROM favorites
@@ -125,7 +126,7 @@ impl<'a> FavoritesDb<'a> {
         sqlx::query(
             r#"
             UPDATE favorites
-            SET filename = ?, filepath = ?, gif_url = ?, media_type = ?, source = ?, source_id = ?,
+            SET filename = ?, filepath = ?, mp4_filepath = ?, gif_url = ?, media_type = ?, source = ?, source_id = ?,
                 source_url = ?, tags = ?, custom_tags = ?, description = ?,
                 width = ?, height = ?, file_size = ?, last_used = ?, use_count = ?
             WHERE id = ?
@@ -133,6 +134,7 @@ impl<'a> FavoritesDb<'a> {
         )
         .bind(&favorite.filename)
         .bind(&favorite.filepath)
+        .bind(&favorite.mp4_filepath)
         .bind(&favorite.gif_url)
         .bind(favorite.media_type.to_string())
         .bind(source)
@@ -189,6 +191,7 @@ struct FavoriteRow {
     id: i64,
     filename: String,
     filepath: Option<String>,
+    mp4_filepath: Option<String>,
     gif_url: Option<String>,
     media_type: String,
     source: Option<String>,
@@ -224,6 +227,7 @@ impl From<FavoriteRow> for Favorite {
             id: Some(row.id),
             filename: row.filename,
             filepath: row.filepath,
+            mp4_filepath: row.mp4_filepath,
             gif_url: row.gif_url,
             media_type,
             source,

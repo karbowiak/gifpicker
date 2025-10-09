@@ -1,23 +1,28 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import type { Favorite, GiphyGifResult } from '$lib/types';
   import MediaItem from './MediaItem.svelte';
   import { selectedIndex } from '$lib/stores/ui';
 
   export let items: (Favorite | GiphyGifResult)[] = [];
   export let onItemClick: (item: Favorite | GiphyGifResult) => void = () => {};
+  export let onScrollNearEnd: (() => void) | undefined = undefined;
 
   let containerElement: HTMLDivElement;
+  let sentinelElement: HTMLDivElement;
   let currentSelectedIndex = -1;
+  let previousSelectedIndex = -1;
+  let scrollObserver: IntersectionObserver | undefined;
 
   // Subscribe to selected index
   selectedIndex.subscribe(value => {
     currentSelectedIndex = value;
   });
 
-  // Scroll to selected item when selection changes
-  $: if (currentSelectedIndex >= 0 && currentSelectedIndex < items.length) {
+  // Scroll to selected item ONLY when selection actually changes (not when items are added)
+  $: if (currentSelectedIndex !== previousSelectedIndex && currentSelectedIndex >= 0 && currentSelectedIndex < items.length) {
     scrollToSelectedItem();
+    previousSelectedIndex = currentSelectedIndex;
   }
 
   function scrollToSelectedItem() {
@@ -29,11 +34,49 @@
     }
   }
 
+  // Set up infinite scroll when component mounts or callback changes
+  $: if (onScrollNearEnd && sentinelElement) {
+    setupInfiniteScroll();
+  }
+
+  function setupInfiniteScroll() {
+    // Clean up existing observer
+    if (scrollObserver) {
+      scrollObserver.disconnect();
+    }
+
+    if (!sentinelElement || !onScrollNearEnd) return;
+
+    scrollObserver = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting && onScrollNearEnd) {
+            console.log('Scroll sentinel triggered - loading more');
+            onScrollNearEnd();
+          }
+        });
+      },
+      {
+        root: containerElement,
+        rootMargin: '400px', // Trigger 400px before reaching the bottom
+        threshold: 0.01
+      }
+    );
+
+    scrollObserver.observe(sentinelElement);
+  }
+
   onMount(() => {
     // Don't reset selection - let it persist across window open/close
     // Only scroll to the current selection if it exists
     if (currentSelectedIndex >= 0 && currentSelectedIndex < items.length) {
       scrollToSelectedItem();
+    }
+  });
+
+  onDestroy(() => {
+    if (scrollObserver) {
+      scrollObserver.disconnect();
     }
   });
 </script>
@@ -60,6 +103,11 @@
         />
       {/each}
     </div>
+
+    {#if onScrollNearEnd}
+      <!-- Sentinel element for infinite scroll detection -->
+      <div class="scroll-sentinel" bind:this={sentinelElement}></div>
+    {/if}
   {/if}
 </div>
 
@@ -142,5 +190,12 @@
 
   .masonry-layout::-webkit-scrollbar-thumb:hover {
     background: var(--text-tertiary, #9ca3af);
+  }
+
+  .scroll-sentinel {
+    width: 100%;
+    height: 20px;
+    margin-top: 16px;
+    pointer-events: none;
   }
 </style>

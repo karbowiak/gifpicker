@@ -70,13 +70,22 @@ pub async fn delete_favorite(
 
     // Get the favorite to delete its file (if it has one)
     if let Ok(Some(favorite)) = favorites_db.get_by_id(id).await {
-        // Delete the file only if it exists locally
+        // Delete the GIF file if it exists locally
         if let Some(filepath) = &favorite.filepath {
             let path = std::path::PathBuf::from(filepath);
             if path.exists() {
                 Downloader::delete_file(&path)
                     .await
-                    .map_err(|e| format!("Failed to delete file: {}", e))?;
+                    .map_err(|e| format!("Failed to delete GIF file: {}", e))?;
+            }
+        }
+        // Delete the MP4 file if it exists locally
+        if let Some(mp4_filepath) = &favorite.mp4_filepath {
+            let path = std::path::PathBuf::from(mp4_filepath);
+            if path.exists() {
+                Downloader::delete_file(&path)
+                    .await
+                    .map_err(|e| format!("Failed to delete MP4 file: {}", e))?;
             }
         }
     }
@@ -172,6 +181,7 @@ pub async fn import_local_file(
 #[tauri::command]
 pub async fn add_giphy_favorite(
     gif_url: String,
+    mp4_url: Option<String>,
     source_id: String,
     source_url: String,
     title: String,
@@ -181,28 +191,29 @@ pub async fn add_giphy_favorite(
 ) -> Result<Favorite, String> {
     let state = state.lock().await;
 
-    // Download the GIF file to local storage for caching
-    let filename = format!("giphy_{}.gif", source_id);
-    let file_path = state.downloader.download(&gif_url, &filename, "gif")
+    // Download both GIF (for clipboard) and MP4 (for display)
+    let (gif_path, mp4_path) = state.downloader
+        .download_from_giphy(&gif_url, mp4_url.as_deref(), &source_id)
         .await
-        .map_err(|e| format!("Failed to download GIF: {}", e))?;
+        .map_err(|e| format!("Failed to download media: {}", e))?;
 
-    // Get file size
-    let file_size = Downloader::get_file_size(&file_path)
+    // Get file size of GIF
+    let file_size = Downloader::get_file_size(&gif_path)
         .await
         .ok()
         .map(|s| s as i64);
 
-    // Create favorite with both filepath (local cache) and gif_url (backup)
+    // Create favorite with both GIF and MP4 paths
     let mut favorite = Favorite::new(
         title.clone(),
-        Some(file_path.to_string_lossy().to_string()), // Local cached file
+        Some(gif_path.to_string_lossy().to_string()), // GIF for clipboard
         MediaType::Gif,
     )
     .with_gif_url(gif_url.clone()) // Keep URL as backup
     .with_dimensions(width, height)
     .with_source(Source::Giphy, Some(source_id), Some(source_url));
 
+    favorite.mp4_filepath = mp4_path.map(|p| p.to_string_lossy().to_string()); // MP4 for display
     favorite.file_size = file_size;
 
     // Save to database

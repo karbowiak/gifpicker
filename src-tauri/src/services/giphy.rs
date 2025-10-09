@@ -26,6 +26,8 @@ pub struct GiphyImage {
     pub width: String,
     pub height: String,
     pub size: Option<String>,
+    pub mp4: Option<String>,      // MP4 version for display (better performance)
+    pub mp4_size: Option<String>, // Size of MP4 file
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

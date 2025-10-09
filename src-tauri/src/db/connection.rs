@@ -31,24 +31,56 @@ impl Database {
     }
 
     pub async fn run_migrations(&self) -> Result<()> {
-        let migration1 = include_str!("../../migrations/001_initial.sql");
-        let migration2 = include_str!("../../migrations/002_add_gif_url.sql");
-        let migration3 = include_str!("../../migrations/003_add_clipboard_mode.sql");
+        // Create migrations tracking table if it doesn't exist
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS _migrations (
+                version INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                applied_at TEXT NOT NULL
+            )"
+        )
+        .execute(&self.pool)
+        .await
+        .context("Failed to create migrations table")?;
 
-        sqlx::query(migration1)
-            .execute(&self.pool)
-            .await
-            .context("Failed to run migration 001_initial")?;
+        // Define migrations
+        let migrations = vec![
+            (1, "001_initial", include_str!("../../migrations/001_initial.sql")),
+            (2, "002_add_gif_url", include_str!("../../migrations/002_add_gif_url.sql")),
+            (3, "003_add_clipboard_mode", include_str!("../../migrations/003_add_clipboard_mode.sql")),
+        ];
 
-        sqlx::query(migration2)
-            .execute(&self.pool)
+        // Run each migration if not already applied
+        for (version, name, sql) in migrations {
+            // Check if migration already applied
+            let result: Option<(i64,)> = sqlx::query_as(
+                "SELECT version FROM _migrations WHERE version = ?"
+            )
+            .bind(version)
+            .fetch_optional(&self.pool)
             .await
-            .context("Failed to run migration 002_add_gif_url")?;
+            .context(format!("Failed to check migration {}", name))?;
 
-        sqlx::query(migration3)
-            .execute(&self.pool)
-            .await
-            .context("Failed to run migration 003_add_clipboard_mode")?;
+            if result.is_none() {
+                // Run migration
+                sqlx::query(sql)
+                    .execute(&self.pool)
+                    .await
+                    .context(format!("Failed to run migration {}", name))?;
+
+                // Record migration as applied
+                sqlx::query(
+                    "INSERT INTO _migrations (version, name, applied_at) VALUES (?, ?, datetime('now'))"
+                )
+                .bind(version)
+                .bind(name)
+                .execute(&self.pool)
+                .await
+                .context(format!("Failed to record migration {}", name))?;
+
+                println!("Applied migration: {}", name);
+            }
+        }
 
         Ok(())
     }

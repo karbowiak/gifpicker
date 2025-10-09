@@ -83,14 +83,33 @@ impl Downloader {
     }
 
     /// Download from Giphy with a generated filename based on the URL hash
-    pub async fn download_from_giphy(&self, url: &str, giphy_id: &str) -> Result<PathBuf> {
-        // Extract file extension from URL
-        let extension = url.split('.').last().unwrap_or("gif");
+    /// Returns tuple of (gif_path, mp4_path_option)
+    pub async fn download_from_giphy(
+        &self,
+        gif_url: &str,
+        mp4_url: Option<&str>,
+        giphy_id: &str,
+    ) -> Result<(PathBuf, Option<PathBuf>)> {
+        // Download GIF (original for clipboard/download)
+        let gif_extension = gif_url.split('.').last().unwrap_or("gif");
+        let gif_filename = format!("giphy_{}.{}", giphy_id, gif_extension);
+        let gif_path = self.download(gif_url, &gif_filename, "gif").await?;
 
-        // Generate filename using giphy ID
-        let filename = format!("giphy_{}.{}", giphy_id, extension);
+        // Download MP4 if available (for fast display)
+        let mp4_path = if let Some(mp4_url) = mp4_url {
+            let mp4_filename = format!("giphy_{}.mp4", giphy_id);
+            match self.download(mp4_url, &mp4_filename, "videos").await {
+                Ok(path) => Some(path),
+                Err(e) => {
+                    eprintln!("Warning: Failed to download MP4, will use GIF only: {}", e);
+                    None
+                }
+            }
+        } else {
+            None
+        };
 
-        self.download(url, &filename, "gif").await
+        Ok((gif_path, mp4_path))
     }
 
     /// Download a GIF to a temporary location (not saved to favorites)

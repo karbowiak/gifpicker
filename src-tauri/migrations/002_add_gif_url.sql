@@ -1,12 +1,13 @@
--- Migration to make filepath optional and add gif_url field
--- This allows us to store Giphy GIFs by URL without downloading
+-- Migration to make filepath optional and add gif_url and mp4_filepath fields
+-- This allows us to store both GIF and MP4 versions for optimal performance
 
--- Create new table with updated schema
-CREATE TABLE IF NOT EXISTS favorites_new (
+-- Create a temporary table with the new schema
+CREATE TABLE favorites_new (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     filename TEXT NOT NULL,
-    filepath TEXT, -- Made optional (removed NOT NULL)
-    gif_url TEXT, -- Direct GIF URL for clipboard
+    filepath TEXT, -- GIF file path (optional)
+    mp4_filepath TEXT, -- MP4 version for display (better performance)
+    gif_url TEXT, -- Direct GIF URL for clipboard/backup
     media_type TEXT NOT NULL,
     source TEXT,
     source_id TEXT,
@@ -22,19 +23,19 @@ CREATE TABLE IF NOT EXISTS favorites_new (
     use_count INTEGER NOT NULL DEFAULT 0
 );
 
--- Copy existing data
-INSERT INTO favorites_new SELECT
-    id, filename, filepath, NULL as gif_url, media_type, source, source_id, source_url,
-    tags, custom_tags, description, width, height, file_size, created_at, last_used, use_count
+-- Copy existing data from old favorites table
+INSERT INTO favorites_new (id, filename, filepath, media_type, source, source_id, source_url, tags, custom_tags, description, width, height, file_size, created_at, last_used, use_count)
+SELECT id, filename, filepath, media_type, source, source_id, source_url, tags, custom_tags, description, width, height, file_size, created_at, last_used, use_count
 FROM favorites;
 
 -- Drop old table and rename new one
 DROP TABLE favorites;
 ALTER TABLE favorites_new RENAME TO favorites;
 
--- Recreate indexes
-CREATE INDEX IF NOT EXISTS idx_favorites_media_type ON favorites(media_type);
-CREATE INDEX IF NOT EXISTS idx_favorites_source ON favorites(source);
+-- Create indexes for better search performance
+CREATE INDEX idx_favorites_media_type ON favorites(media_type);
+CREATE INDEX idx_favorites_source ON favorites(source);
+CREATE INDEX idx_favorites_created_at ON favorites(created_at);
 CREATE INDEX IF NOT EXISTS idx_favorites_created_at ON favorites(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_favorites_use_count ON favorites(use_count DESC);
 
