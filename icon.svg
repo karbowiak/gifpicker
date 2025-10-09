@@ -1,0 +1,18 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- No background - transparent for menu bar template -->
+
+  <!-- Simple stacked frames representing GIF animation - fills entire canvas -->
+  <g>
+    <!-- Back frame (offset) - suggests multiple frames/animation -->
+    <rect x="60" y="40" width="400" height="400" rx="24" fill="none" stroke="#000000" stroke-width="16" opacity="0.3"/>
+
+    <!-- Middle frame (offset) -->
+    <rect x="40" y="60" width="400" height="400" rx="24" fill="none" stroke="#000000" stroke-width="16" opacity="0.6"/>
+
+    <!-- Front frame (main) - solid with play button -->
+    <rect x="20" y="80" width="400" height="400" rx="24" fill="none" stroke="#000000" stroke-width="18"/>
+
+    <!-- Simple play triangle in center -->
+    <path d="M180 200 L180 360 L340 280 Z" fill="#000000"/>
+  </g>
+</svg>

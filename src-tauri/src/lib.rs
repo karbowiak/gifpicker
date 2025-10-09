@@ -30,7 +30,7 @@ pub fn run() {
             {
                 app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             }
-            
+
             // Get app data directory
             let app_dir = app.path().app_data_dir()
                 .expect("Failed to get app data directory");
@@ -71,10 +71,16 @@ pub fn run() {
                 .build()?;
 
             // Build tray icon - only create once per app lifecycle
-            let _tray = TrayIconBuilder::new()
+            let tray_builder = TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
                 .tooltip("GIF Picker")
-                .menu(&menu)
+                .menu(&menu);
+
+            // On macOS, set the icon as a template so it adapts to light/dark mode
+            #[cfg(target_os = "macos")]
+            let tray_builder = tray_builder.icon_as_template(true);
+
+            let _tray = tray_builder
                 .on_menu_event(|app, event| {
                     match event.id.as_ref() {
                         "show" => {
