@@ -71,10 +71,12 @@ pub fn run() {
                 .build()?;
 
             // Build tray icon - only create once per app lifecycle
+            // Set show_menu_on_left_click to false so menu only appears on right-click
             let tray_builder = TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
                 .tooltip("GIF Picker")
-                .menu(&menu);
+                .menu(&menu)
+                .show_menu_on_left_click(false);
 
             // On macOS, set the icon as a template so it adapts to light/dark mode
             #[cfg(target_os = "macos")]
@@ -100,36 +102,50 @@ pub fn run() {
                             }
                         }
                         "quit" => {
-                            app.exit(0);
+                            // Properly quit the application
+                            std::process::exit(0);
                         }
                         _ => {}
                     }
                 })
                 .on_tray_icon_event(|tray, event| {
-                    if let TrayIconEvent::Click { .. } = event {
-                        let app = tray.app_handle();
-                        if let Some(window) = app.get_webview_window("main") {
-                            if window.is_visible().unwrap_or(false) {
-                                // Hide and deactivate
-                                let _ = window.hide();
-                                #[cfg(target_os = "macos")]
-                                {
-                                    use objc2::runtime::AnyObject;
-                                    use objc2::{class, msg_send};
+                    // Match on the specific event type to differentiate left-click from right-click
+                    // Only respond to button release (Up state) to avoid toggling on mouse down
+                    match event {
+                        TrayIconEvent::Click {
+                            button: tauri::tray::MouseButton::Left,
+                            button_state: tauri::tray::MouseButtonState::Up,
+                            ..
+                        } => {
+                            // Left-click (on release): Toggle window visibility
+                            let app = tray.app_handle();
+                            if let Some(window) = app.get_webview_window("main") {
+                                if window.is_visible().unwrap_or(false) {
+                                    // Hide and deactivate
+                                    let _ = window.hide();
+                                    #[cfg(target_os = "macos")]
+                                    {
+                                        use objc2::runtime::AnyObject;
+                                        use objc2::{class, msg_send};
 
-                                    // Tray event handlers run on main thread, safe to call directly
-                                    unsafe {
-                                        let app = class!(NSApplication);
-                                        let shared: *mut AnyObject = msg_send![app, sharedApplication];
-                                        let _: () = msg_send![shared, deactivate];
+                                        // Tray event handlers run on main thread, safe to call directly
+                                        unsafe {
+                                            let app = class!(NSApplication);
+                                            let shared: *mut AnyObject = msg_send![app, sharedApplication];
+                                            let _: () = msg_send![shared, deactivate];
+                                        }
                                     }
+                                } else {
+                                    let _ = window.show();
+                                    let _ = window.set_focus();
+                                    let _ = window.emit("clear-search", ());
+                                    let _ = window.emit("focus-search", ());
                                 }
-                            } else {
-                                let _ = window.show();
-                                let _ = window.set_focus();
-                                let _ = window.emit("clear-search", ());
-                                let _ = window.emit("focus-search", ());
                             }
+                        }
+                        _ => {
+                            // Right-click and other events: menu shows automatically
+                            // No action needed - handled by show_menu_on_left_click(false)
                         }
                     }
                 })
