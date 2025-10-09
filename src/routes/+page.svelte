@@ -243,8 +243,22 @@
 
       // Listen for "clear-search" event to clear the search bar
       await listen('clear-search', () => {
+        console.log('clear-search event received');
         if (searchBarComponent) {
           searchBarComponent.clear();
+        }
+      });
+
+      // Listen for window focus events to reset state when window is shown
+      const { getCurrentWindow } = await import('@tauri-apps/api/window');
+      const currentWindow = getCurrentWindow();
+      
+      await currentWindow.onFocusChanged(({ payload: focused }) => {
+        if (focused) {
+          console.log('Window gained focus, clearing search');
+          if (searchBarComponent) {
+            searchBarComponent.clear();
+          }
         }
       });
     } catch (error) {
