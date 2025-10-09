@@ -7,7 +7,7 @@
   import Toast from '$lib/components/Toast.svelte';
   import ContextMenu from '$lib/components/ContextMenu.svelte';
   import Settings from '$lib/components/Settings.svelte';
-  import { searchResults, searchQuery, loadMoreResults, isLoadingMore } from '$lib/stores/search';
+  import { searchResults, searchQuery, loadMoreResults, isLoadingMore, isSearching } from '$lib/stores/search';
   import { favorites } from '$lib/stores/favorites';
   import { settings } from '$lib/stores/settings';
   import { selectedIndex, showToast, showSettings } from '$lib/stores/ui';
@@ -39,7 +39,6 @@
       }
     }
 
-    console.log('allItems updating, old length:', previousLength, 'new length:', items.length, 'current selectedIndex:', $selectedIndex);
     allItems = items;
 
     // Only reset selection if it's out of bounds AND we're not just adding more items (infinite scroll)
@@ -47,7 +46,6 @@
     const isLoadingMore = items.length > previousLength && previousLength > 0;
 
     if (!isLoadingMore && $selectedIndex >= allItems.length) {
-      console.log('Resetting selectedIndex from', $selectedIndex, 'to 0 because items changed');
       selectedIndex.set(0);
     }
   }
@@ -65,7 +63,6 @@
 
   // Handle item click - copy GIF to clipboard
   async function handleItemClick(item: Favorite | GiphyGifResult) {
-    console.log('handleItemClick called with:', item);
     const clipboardMode = $settings?.clipboard_mode || 'file';
 
     try {
@@ -155,7 +152,6 @@
     if (itemCount === 0) return;
 
     const current = $selectedIndex;
-    console.log('KeyDown:', event.key, 'current selectedIndex:', current, 'itemCount:', itemCount);
 
     // Calculate items per row (rough estimate based on masonry layout)
     const itemsPerRow = 4;
@@ -164,7 +160,6 @@
       case 'ArrowDown':
         event.preventDefault();
         if (current + itemsPerRow < itemCount) {
-          console.log('ArrowDown: setting to', current + itemsPerRow);
           selectedIndex.set(current + itemsPerRow);
         }
         break;
@@ -172,7 +167,6 @@
       case 'ArrowUp':
         event.preventDefault();
         if (current - itemsPerRow >= 0) {
-          console.log('ArrowUp: setting to', current - itemsPerRow);
           selectedIndex.set(current - itemsPerRow);
         }
         break;
@@ -180,7 +174,6 @@
       case 'ArrowRight':
         event.preventDefault();
         if (current + 1 < itemCount) {
-          console.log('ArrowRight: setting to', current + 1);
           selectedIndex.set(current + 1);
         }
         break;
@@ -188,7 +181,6 @@
       case 'ArrowLeft':
         event.preventDefault();
         if (current - 1 >= 0) {
-          console.log('ArrowLeft: setting to', current - 1);
           selectedIndex.set(current - 1);
         }
         break;
@@ -196,14 +188,15 @@
       case 'Enter':
         event.preventDefault();
         if (current >= 0 && current < itemCount) {
-          console.log('Enter pressed - selectedIndex:', current, 'itemCount:', itemCount);
-          console.log('Selected item:', allItems[current]);
           handleItemClick(allItems[current]);
         }
         break;
 
       case 'Escape':
         event.preventDefault();
+        // Force reset all loading states before closing
+        isSearching.set(false);
+        isLoadingMore.set(false);
         // Close window
         invoke('close_window').catch(console.error);
         break;
@@ -243,7 +236,10 @@
 
       // Listen for "clear-search" event to clear the search bar
       await listen('clear-search', () => {
-        console.log('clear-search event received');
+        // Force reset all loading states
+        isSearching.set(false);
+        isLoadingMore.set(false);
+        
         if (searchBarComponent) {
           searchBarComponent.clear();
         }
@@ -252,10 +248,14 @@
       // Listen for window focus events to reset state when window is shown
       const { getCurrentWindow } = await import('@tauri-apps/api/window');
       const currentWindow = getCurrentWindow();
-      
+
       await currentWindow.onFocusChanged(({ payload: focused }) => {
         if (focused) {
-          console.log('Window gained focus, clearing search');
+          // Force reset ALL loading states to prevent stuck UI
+          isSearching.set(false);
+          isLoadingMore.set(false);
+
+          // Clear search and reset to favorites
           if (searchBarComponent) {
             searchBarComponent.clear();
           }
@@ -292,6 +292,22 @@
         <p>Loading more...</p>
       </div>
     {/if}
+  {/if}
+
+  <!-- Show Giphy attribution when displaying search results -->
+  {#if hasSearchQuery && allItems.length > 0}
+    <a
+      href="https://giphy.com"
+      target="_blank"
+      rel="noopener noreferrer"
+      class="giphy-attribution"
+    >
+      <img
+        src="/giphy/PoweredBy_200px-White_HorizLogo.png"
+        alt="Powered by GIPHY"
+        class="giphy-logo"
+      />
+    </a>
   {/if}
 
   <Toast />
@@ -418,5 +434,31 @@
     border-top-color: var(--accent-color);
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
+  }
+
+  .giphy-attribution {
+    position: fixed;
+    bottom: 12px;
+    right: 12px;
+    z-index: 50;
+    padding: 8px 12px;
+    background: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(8px);
+    border-radius: 6px;
+    transition: all 0.2s ease;
+    cursor: pointer;
+    text-decoration: none;
+    display: block;
+  }
+
+  .giphy-attribution:hover {
+    background: rgba(0, 0, 0, 0.95);
+    transform: scale(1.05);
+  }
+
+  .giphy-logo {
+    height: 24px;
+    width: auto;
+    display: block;
   }
 </style>

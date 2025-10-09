@@ -2,21 +2,21 @@ import { writable } from 'svelte/store';
 import type { Favorite, GiphyGifResult } from '$lib/types';
 
 // Selected item index in the grid - with logging
-function createSelectedIndexStore() {
+// Selected index for keyboard navigation
+function createSelectedIndex() {
   const { subscribe, set, update } = writable<number>(-1);
 
   return {
     subscribe,
     set: (value: number) => {
-      console.log('selectedIndex.set() called with:', value);
-      console.trace(); // This will show the call stack!
       set(value);
     },
-    update
+    update,
+    reset: () => set(-1)
   };
 }
 
-export const selectedIndex = createSelectedIndexStore();
+export const selectedIndex = createSelectedIndex();
 
 // Is search bar focused
 export const isSearchFocused = writable<boolean>(true);

@@ -4,7 +4,10 @@
     searchQuery as searchQueryStore,
     performSearch,
     debouncedSearch,
-    clearSearch as clearSearchStore
+    clearSearch as clearSearchStore,
+    cancelPendingSearch,
+    isLoadingMore,
+    isSearching
   } from '$lib/stores/search';
   import { settings } from '$lib/stores/settings';
   import { selectedIndex, showSettings } from '$lib/stores/ui';
@@ -25,13 +28,19 @@
 
   // Export function to focus input (can be called from parent)
   export function focus() {
-    console.log('SearchBar focus() called');
     inputElement?.focus();
   }
 
   // Export function to clear search (can be called from parent)
   export function clear() {
-    console.log('SearchBar clear() called');
+    // Cancel any pending searches first
+    cancelPendingSearch();
+    
+    // Force reset all loading states immediately
+    isSearching.set(false);
+    isLoadingMore.set(false);
+    
+    // Clear search and reload favorites
     query = '';
     clearSearchStore();
     performSearch('', apiKey); // Load all favorites
@@ -53,7 +62,6 @@
     debouncedSearch(query, apiKey);
 
     // Reset selection when search changes
-    console.log('SearchBar handleInput: resetting selectedIndex to 0');
     selectedIndex.set(0);
   }
 
@@ -62,6 +70,14 @@
 
   // Clear search input
   function clearSearch() {
+    // Cancel any pending searches first
+    cancelPendingSearch();
+    
+    // Force reset all loading states immediately
+    isSearching.set(false);
+    isLoadingMore.set(false);
+    
+    // Clear search and reload favorites
     query = '';
     clearSearchStore();
     performSearch('', apiKey); // Load all favorites

@@ -54,6 +54,11 @@ export async function performSearch(query: string, giphyApiKey?: string) {
   currentOffset = 0;
   totalCount = 0;
 
+  // Set a timeout to force reset loading state if it gets stuck (10 seconds)
+  const timeoutId = setTimeout(() => {
+    isSearching.set(false);
+  }, 10000);
+
   try {
     // Search only Giphy (no local favorites)
     // Start with 25 results (similar to Giphy's own interface)
@@ -77,6 +82,7 @@ export async function performSearch(query: string, giphyApiKey?: string) {
     console.error('Search failed:', error);
     searchError.set(error as string);
   } finally {
+    clearTimeout(timeoutId);
     isSearching.set(false);
   }
 }
@@ -88,11 +94,15 @@ export async function loadMoreResults(giphyApiKey?: string) {
 
   // Check if we've reached Giphy's limit or the end of results
   if (currentOffset >= MAX_GIPHY_OFFSET || currentOffset >= totalCount) {
-    console.log('Reached end of Giphy results');
     return;
   }
 
   isLoadingMore.set(true);
+
+  // Set a timeout to force reset loading state if it gets stuck (10 seconds)
+  const timeoutId = setTimeout(() => {
+    isLoadingMore.set(false);
+  }, 10000);
 
   try {
     // Load next batch (25 results like Giphy's interface)
@@ -105,20 +115,25 @@ export async function loadMoreResults(giphyApiKey?: string) {
 
     // If no results returned, we've reached the end
     if (!result.gifs || result.gifs.length === 0) {
-      console.log('No more results available');
       return;
     }
 
-    // Append new results to existing ones
+    // Append new results to existing ones, filtering out duplicates
     searchResults.update(current => {
       const existingGifs = current.giphy?.gifs || [];
       const newGifs = result.gifs || [];
+      
+      // Create a Set of existing IDs for fast lookup
+      const existingIds = new Set(existingGifs.map(gif => gif.id));
+      
+      // Filter out duplicates from new results
+      const uniqueNewGifs = newGifs.filter(gif => !existingIds.has(gif.id));
 
       return {
         ...current,
         giphy: {
           ...result,
-          gifs: [...existingGifs, ...newGifs]
+          gifs: [...existingGifs, ...uniqueNewGifs]
         }
       };
     });
@@ -128,6 +143,7 @@ export async function loadMoreResults(giphyApiKey?: string) {
   } catch (error) {
     console.error('Failed to load more results:', error);
   } finally {
+    clearTimeout(timeoutId);
     isLoadingMore.set(false);
   }
 }
@@ -138,6 +154,11 @@ export function debouncedSearch(query: string, giphyApiKey?: string, delay: numb
   searchDebounceTimer = setTimeout(() => {
     performSearch(query, giphyApiKey);
   }, delay);
+}
+
+// Cancel any pending debounced search
+export function cancelPendingSearch() {
+  clearTimeout(searchDebounceTimer);
 }
 
 // Download Giphy GIF
@@ -174,9 +195,15 @@ export async function getTrending(giphyApiKey: string, limit: number = 20, offse
 
 // Clear search
 export function clearSearch() {
+  // Cancel any pending debounced searches
+  cancelPendingSearch();
+  
+  // Reset all state
   searchQuery.set('');
   searchResults.set({ local: [], giphy: undefined });
   searchError.set(null);
+  isSearching.set(false);
+  isLoadingMore.set(false);
   currentQuery = '';
   currentOffset = 0;
   totalCount = 0;

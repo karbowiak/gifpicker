@@ -51,7 +51,6 @@
       (entries) => {
         entries.forEach((entry) => {
           if (entry.isIntersecting && onScrollNearEnd) {
-            console.log('Scroll sentinel triggered - loading more');
             onScrollNearEnd();
           }
         });
