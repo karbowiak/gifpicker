@@ -25,6 +25,12 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(|app| {
+            // Set activation policy on macOS to hide from dock
+            #[cfg(target_os = "macos")]
+            {
+                app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+            }
+            
             // Get app data directory
             let app_dir = app.path().app_data_dir()
                 .expect("Failed to get app data directory");

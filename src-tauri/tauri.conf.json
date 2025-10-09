@@ -20,7 +20,7 @@
         "center": true,
         "resizable": true,
         "decorations": true,
-        "skipTaskbar": false,
+        "skipTaskbar": true,
         "alwaysOnTop": false,
         "focus": true
       }
