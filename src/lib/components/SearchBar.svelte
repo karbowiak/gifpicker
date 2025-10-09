@@ -23,6 +23,21 @@
     inputElement?.focus();
   });
 
+  // Export function to focus input (can be called from parent)
+  export function focus() {
+    console.log('SearchBar focus() called');
+    inputElement?.focus();
+  }
+
+  // Export function to clear search (can be called from parent)
+  export function clear() {
+    console.log('SearchBar clear() called');
+    query = '';
+    clearSearchStore();
+    performSearch('', apiKey); // Load all favorites
+    selectedIndex.set(0); // Reset selection to first item
+  }
+
   // Open settings
   function openSettings() {
     showSettings.set(true);
@@ -38,17 +53,12 @@
     debouncedSearch(query, apiKey);
 
     // Reset selection when search changes
+    console.log('SearchBar handleInput: resetting selectedIndex to 0');
     selectedIndex.set(0);
   }
 
-  // Handle Enter key - perform immediate search
-  function handleKeyDown(event: KeyboardEvent) {
-    if (event.key === 'Enter') {
-      event.preventDefault();
-      performSearch(query, apiKey);
-      selectedIndex.set(0);
-    }
-  }
+  // Don't handle Enter key - let it bubble to main page for GIF selection
+  // Search happens automatically via debounce
 
   // Clear search input
   function clearSearch() {
@@ -73,7 +83,6 @@
       placeholder="Search GIFs..."
       value={query}
       on:input={handleInput}
-      on:keydown={handleKeyDown}
     />
 
     {#if query}

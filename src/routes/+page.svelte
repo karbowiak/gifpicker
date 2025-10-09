@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
+  import { listen } from '@tauri-apps/api/event';
   import SearchBar from '$lib/components/SearchBar.svelte';
   import MasonryLayout from '$lib/components/MasonryLayout.svelte';
   import Toast from '$lib/components/Toast.svelte';
@@ -11,9 +12,11 @@
   import { settings } from '$lib/stores/settings';
   import { selectedIndex, showToast, showSettings } from '$lib/stores/ui';
   import type { Favorite, GiphyGifResult } from '$lib/types';
+  import { isFavorite } from '$lib/types';
 
   let allItems: (Favorite | GiphyGifResult)[] = [];
   let isLoading = true;
+  let searchBarComponent: SearchBar;
 
   // Combine search results
   $: {
@@ -29,28 +32,99 @@
       items.push(...$searchResults.giphy.gifs);
     }
 
+    console.log('allItems updating, old length:', allItems.length, 'new length:', items.length, 'current selectedIndex:', $selectedIndex);
     allItems = items;
 
     // Reset selection when items change
     if ($selectedIndex >= allItems.length) {
+      console.log('Resetting selectedIndex from', $selectedIndex, 'to 0 because items changed');
       selectedIndex.set(0);
     }
   }
 
-  // Handle item click
+  // Handle item click - copy GIF to clipboard
   async function handleItemClick(item: Favorite | GiphyGifResult) {
-    // The MediaItem component already handles clipboard copy
-    // Just close the window if setting is enabled
-    const closeAfterCopy = $settings?.close_after_selection ?? true;
+    console.log('handleItemClick called with:', item);
+    const clipboardMode = $settings?.clipboard_mode || 'file';
 
-    if (closeAfterCopy) {
-      setTimeout(async () => {
+    try {
+      if (isFavorite(item)) {
+        const favorite = item as Favorite;
+
+        if (clipboardMode === 'file') {
+          // Copy the file itself
+          if (favorite.filepath) {
+            await invoke('copy_file_path_to_clipboard', {
+              filePath: favorite.filepath
+            });
+          } else if (favorite.gif_url) {
+            await invoke('copy_text_to_clipboard', {
+              text: favorite.gif_url
+            });
+          }
+        } else {
+          // Copy URL mode
+          if (favorite.gif_url) {
+            await invoke('copy_text_to_clipboard', {
+              text: favorite.gif_url
+            });
+          } else {
+            showToast('No Giphy URL available for this GIF', 'error');
+            return;
+          }
+        }
+
+        // Increment use count
+        await invoke('increment_use_count', {
+          id: favorite.id
+        });
+
+        showToast('Copied to clipboard!', 'success');
+      } else {
+        // For Giphy search results (not favorited yet)
+        const giphyResult = item as GiphyGifResult;
+
+        if (clipboardMode === 'file') {
+          // Download and copy the file (temporary, not saved to favorites)
+          try {
+            const filePath = await invoke<string>('download_gif_temp', {
+              gifUrl: giphyResult.gif_url,
+              filename: `${giphyResult.id}.gif`
+            });
+            await invoke('copy_file_path_to_clipboard', {
+              filePath: filePath
+            });
+            showToast('GIF copied to clipboard!', 'success');
+          } catch (error) {
+            console.error('Failed to download GIF:', error);
+            // Fallback to URL copy
+            await invoke('copy_text_to_clipboard', {
+              text: giphyResult.gif_url
+            });
+            showToast('GIF URL copied to clipboard!', 'success');
+          }
+        } else {
+          // URL mode - just copy the URL
+          await invoke('copy_text_to_clipboard', {
+            text: giphyResult.gif_url
+          });
+          showToast('GIF URL copied to clipboard!', 'success');
+        }
+      }
+
+      // Close window if setting is enabled
+      const closeAfterCopy = $settings?.close_after_selection ?? true;
+      if (closeAfterCopy) {
+        // Close immediately - no delay needed
         try {
           await invoke('close_window');
         } catch (error) {
           console.error('Failed to close window:', error);
         }
-      }, 500); // Small delay to show success toast
+      }
+    } catch (error) {
+      console.error('Failed to copy to clipboard:', error);
+      showToast('Failed to copy to clipboard', 'error');
     }
   }
 
@@ -60,6 +134,7 @@
     if (itemCount === 0) return;
 
     const current = $selectedIndex;
+    console.log('KeyDown:', event.key, 'current selectedIndex:', current, 'itemCount:', itemCount);
 
     // Calculate items per row (rough estimate based on masonry layout)
     const itemsPerRow = 4;
@@ -68,6 +143,7 @@
       case 'ArrowDown':
         event.preventDefault();
         if (current + itemsPerRow < itemCount) {
+          console.log('ArrowDown: setting to', current + itemsPerRow);
           selectedIndex.set(current + itemsPerRow);
         }
         break;
@@ -75,6 +151,7 @@
       case 'ArrowUp':
         event.preventDefault();
         if (current - itemsPerRow >= 0) {
+          console.log('ArrowUp: setting to', current - itemsPerRow);
           selectedIndex.set(current - itemsPerRow);
         }
         break;
@@ -82,6 +159,7 @@
       case 'ArrowRight':
         event.preventDefault();
         if (current + 1 < itemCount) {
+          console.log('ArrowRight: setting to', current + 1);
           selectedIndex.set(current + 1);
         }
         break;
@@ -89,6 +167,7 @@
       case 'ArrowLeft':
         event.preventDefault();
         if (current - 1 >= 0) {
+          console.log('ArrowLeft: setting to', current - 1);
           selectedIndex.set(current - 1);
         }
         break;
@@ -96,6 +175,8 @@
       case 'Enter':
         event.preventDefault();
         if (current >= 0 && current < itemCount) {
+          console.log('Enter pressed - selectedIndex:', current, 'itemCount:', itemCount);
+          console.log('Selected item:', allItems[current]);
           handleItemClick(allItems[current]);
         }
         break;
@@ -126,6 +207,25 @@
       searchResults.set({ local: allFavorites, giphy: undefined });
 
       isLoading = false;
+
+      // Listen for tray menu "open-settings" event
+      await listen('open-settings', () => {
+        showSettings.set(true);
+      });
+
+      // Listen for "focus-search" event to focus the search bar
+      await listen('focus-search', () => {
+        if (searchBarComponent) {
+          searchBarComponent.focus();
+        }
+      });
+
+      // Listen for "clear-search" event to clear the search bar
+      await listen('clear-search', () => {
+        if (searchBarComponent) {
+          searchBarComponent.clear();
+        }
+      });
     } catch (error) {
       console.error('Failed to initialize:', error);
       showToast('Failed to load data', 'error');
@@ -137,7 +237,7 @@
 <svelte:window on:keydown={handleKeyDown} />
 
 <div class="app">
-  <SearchBar />
+  <SearchBar bind:this={searchBarComponent} />
 
   {#if isLoading}
     <div class="loading-container">

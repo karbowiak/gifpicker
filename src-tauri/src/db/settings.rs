@@ -37,6 +37,7 @@ impl<'a> SettingsDb<'a> {
                 "close_after_selection" => settings.close_after_selection = serde_json::from_str(&value).unwrap_or(settings.close_after_selection),
                 "launch_at_startup" => settings.launch_at_startup = serde_json::from_str(&value).unwrap_or(settings.launch_at_startup),
                 "theme" => settings.theme = serde_json::from_str(&value).unwrap_or(settings.theme),
+                "clipboard_mode" => settings.clipboard_mode = serde_json::from_str(&value).unwrap_or(settings.clipboard_mode),
                 _ => {}
             }
         }
@@ -61,6 +62,7 @@ impl<'a> SettingsDb<'a> {
             ("close_after_selection", serde_json::to_string(&settings.close_after_selection)?),
             ("launch_at_startup", serde_json::to_string(&settings.launch_at_startup)?),
             ("theme", serde_json::to_string(&settings.theme)?),
+            ("clipboard_mode", serde_json::to_string(&settings.clipboard_mode)?),
         ];
 
         for (key, value) in pairs {

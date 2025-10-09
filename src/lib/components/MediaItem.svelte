@@ -3,7 +3,9 @@
   import { isFavorite } from '$lib/types';
   import { openContextMenu } from '$lib/stores/ui';
   import { showToast } from '$lib/stores/ui';
+  import { settings } from '$lib/stores/settings';
   import { invoke } from '@tauri-apps/api/core';
+  import { convertFileSrc } from '@tauri-apps/api/core';
   import { onMount, onDestroy } from 'svelte';
 
   export let item: Favorite | GiphyGifResult;
@@ -45,15 +47,13 @@
           return;
         }
 
-        // Load local file as data URL through Rust command
+        // Use Tauri's convertFileSrc for proper asset protocol handling
         try {
-          const dataUrl = await invoke<string>('read_file_as_data_url', {
-            filePath: favorite.filepath
-          });
-          imageUrl = dataUrl;
-          dataUrlCache.set(favorite.filepath, dataUrl); // Cache it
+          const assetUrl = convertFileSrc(favorite.filepath);
+          imageUrl = assetUrl;
+          dataUrlCache.set(favorite.filepath, assetUrl); // Cache it
         } catch (error) {
-          console.error('Failed to load local file:', error);
+          console.error('Failed to convert to asset URL:', error);
           // Fallback to gif_url if available
           if (favorite.gif_url) {
             imageUrl = favorite.gif_url;
@@ -84,7 +84,7 @@
         });
       },
       {
-        rootMargin: '50px', // Start loading slightly before visible
+        rootMargin: '200px', // Load well before visible for smoother scrolling
         threshold: 0.01
       }
     );
@@ -121,19 +121,34 @@
     isLoading = true;
 
     try {
+      const clipboardMode = $settings?.clipboard_mode || 'file';
+
       if (isLocalFavorite) {
         const favorite = item as Favorite;
 
-        // If it has a local filepath, copy the file path (preserves GIF animation)
-        if (favorite.filepath) {
-          await invoke('copy_file_path_to_clipboard', {
-            filePath: favorite.filepath
-          });
-        } else if (favorite.gif_url) {
-          // Fallback to URL if no local file (shouldn't happen now)
-          await invoke('copy_text_to_clipboard', {
-            text: favorite.gif_url
-          });
+        if (clipboardMode === 'file') {
+          // Copy the file itself (preserves GIF animation)
+          if (favorite.filepath) {
+            await invoke('copy_file_path_to_clipboard', {
+              filePath: favorite.filepath
+            });
+          } else if (favorite.gif_url) {
+            // Fallback to URL if no local file
+            await invoke('copy_text_to_clipboard', {
+              text: favorite.gif_url
+            });
+          }
+        } else {
+          // Copy URL mode - always use Giphy URL
+          if (favorite.gif_url) {
+            await invoke('copy_text_to_clipboard', {
+              text: favorite.gif_url
+            });
+          } else {
+            showToast('No Giphy URL available for this GIF', 'error');
+            isLoading = false;
+            return;
+          }
         }
 
         // Increment use count
@@ -143,13 +158,28 @@
 
         showToast('Copied to clipboard!', 'success');
       } else {
-        // For Giphy search results (not favorited yet), copy URL directly
+        // For Giphy search results (not favorited yet)
         const giphyResult = item as GiphyGifResult;
-        await invoke('copy_text_to_clipboard', {
-          text: giphyResult.gif_url
-        });
 
-        showToast('GIF URL copied to clipboard!', 'success');
+        if (clipboardMode === 'file') {
+          // Download and copy the file
+          showToast('Downloading GIF...', 'info');
+          const result = await invoke<{filepath: string}>('download_giphy_gif', {
+            gifUrl: giphyResult.gif_url,
+            filename: `${giphyResult.id}.gif`
+          });
+
+          await invoke('copy_file_path_to_clipboard', {
+            filePath: result.filepath
+          });
+          showToast('GIF copied to clipboard!', 'success');
+        } else {
+          // Just copy the URL
+          await invoke('copy_text_to_clipboard', {
+            text: giphyResult.gif_url
+          });
+          showToast('GIF URL copied to clipboard!', 'success');
+        }
       }
     } catch (error) {
       console.error('Failed to copy to clipboard:', error);
@@ -266,8 +296,6 @@
     overflow: hidden;
     background: var(--bg-secondary, #f9fafb);
     transition: all 0.2s ease;
-    break-inside: avoid;
-    margin-bottom: 12px;
     border: 2px solid transparent;
   }
 

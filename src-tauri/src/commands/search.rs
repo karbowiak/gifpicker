@@ -199,3 +199,19 @@ pub async fn download_giphy_gif(
 
     Ok(favorite)
 }
+
+#[tauri::command]
+pub async fn download_gif_temp(
+    gif_url: String,
+    filename: String,
+    state: tauri::State<'_, Arc<Mutex<AppState>>>,
+) -> Result<String, String> {
+    let state = state.lock().await;
+
+    // Download the GIF to a temporary location
+    let file_path = state.downloader.download_temp(&gif_url, &filename)
+        .await
+        .map_err(|e| format!("Failed to download GIF: {}", e))?;
+
+    Ok(file_path.to_string_lossy().to_string())
+}

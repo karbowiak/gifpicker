@@ -93,6 +93,48 @@ impl Downloader {
         self.download(url, &filename, "gif").await
     }
 
+    /// Download a GIF to a temporary location (not saved to favorites)
+    /// Used for clipboard copy without saving to favorites
+    pub async fn download_temp(&self, url: &str, filename: &str) -> Result<PathBuf> {
+        // Use system temp directory
+        let temp_dir = std::env::temp_dir().join("gifpicker_temp");
+        fs::create_dir_all(&temp_dir).await
+            .context("Failed to create temp directory")?;
+
+        let file_path = temp_dir.join(filename);
+
+        // Check if file already exists in temp (avoid re-download)
+        if file_path.exists() {
+            return Ok(file_path);
+        }
+
+        // Download the file
+        let response = self.client
+            .get(url)
+            .send()
+            .await
+            .context("Failed to download file")?;
+
+        if !response.status().is_success() {
+            anyhow::bail!("Failed to download file: HTTP {}", response.status());
+        }
+
+        let bytes = response.bytes().await
+            .context("Failed to read response body")?;
+
+        // Write to file
+        let mut file = fs::File::create(&file_path).await
+            .context("Failed to create file")?;
+
+        file.write_all(&bytes).await
+            .context("Failed to write file")?;
+
+        file.flush().await
+            .context("Failed to flush file")?;
+
+        Ok(file_path)
+    }
+
     /// Copy a local file to the media directory
     pub async fn import_local_file(&self, source_path: &Path) -> Result<PathBuf> {
         self.ensure_directories().await?;

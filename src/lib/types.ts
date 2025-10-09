@@ -3,6 +3,7 @@
 export type MediaType = 'gif' | 'image' | 'video';
 export type Source = 'giphy' | 'tenor' | 'local' | 'upload';
 export type Theme = 'light' | 'dark' | 'system';
+export type ClipboardMode = 'file' | 'url';
 
 export interface Favorite {
   id?: number;
@@ -33,6 +34,7 @@ export interface Settings {
   close_after_selection: boolean;
   launch_at_startup: boolean;
   theme: Theme;
+  clipboard_mode: ClipboardMode;
 }
 
 export interface GiphyGifResult {

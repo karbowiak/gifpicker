@@ -2,6 +2,8 @@ use anyhow::{Context, Result};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
 use std::path::PathBuf;
 use std::str::FromStr;
+use super::settings::SettingsDb;
+use super::favorites::FavoritesDb;
 
 pub struct Database {
     pool: SqlitePool,
@@ -31,6 +33,7 @@ impl Database {
     pub async fn run_migrations(&self) -> Result<()> {
         let migration1 = include_str!("../../migrations/001_initial.sql");
         let migration2 = include_str!("../../migrations/002_add_gif_url.sql");
+        let migration3 = include_str!("../../migrations/003_add_clipboard_mode.sql");
 
         sqlx::query(migration1)
             .execute(&self.pool)
@@ -42,11 +45,24 @@ impl Database {
             .await
             .context("Failed to run migration 002_add_gif_url")?;
 
+        sqlx::query(migration3)
+            .execute(&self.pool)
+            .await
+            .context("Failed to run migration 003_add_clipboard_mode")?;
+
         Ok(())
     }
 
     pub fn pool(&self) -> &SqlitePool {
         &self.pool
+    }
+
+    pub fn settings(&self) -> SettingsDb<'_> {
+        SettingsDb::new(&self.pool)
+    }
+
+    pub fn favorites(&self) -> FavoritesDb<'_> {
+        FavoritesDb::new(&self.pool)
     }
 }
 

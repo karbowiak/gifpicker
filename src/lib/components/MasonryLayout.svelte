@@ -30,8 +30,11 @@
   }
 
   onMount(() => {
-    // Reset selection when component mounts
-    selectedIndex.set(0);
+    // Don't reset selection - let it persist across window open/close
+    // Only scroll to the current selection if it exists
+    if (currentSelectedIndex >= 0 && currentSelectedIndex < items.length) {
+      scrollToSelectedItem();
+    }
   });
 </script>
 
@@ -71,7 +74,7 @@
   .masonry-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-    gap: 12px;
+    gap: 8px;
     align-items: start;
   }
 
@@ -79,18 +82,21 @@
   @media (max-width: 1200px) {
     .masonry-grid {
       grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 8px;
     }
   }
 
   @media (max-width: 800px) {
     .masonry-grid {
       grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 6px;
     }
   }
 
   @media (max-width: 500px) {
     .masonry-grid {
       grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 6px;
     }
   }
 

@@ -32,3 +32,4 @@ pub async fn read_file_as_data_url(file_path: String) -> Result<String, String> 
     // Return as data URL
     Ok(format!("data:{};base64,{}", mime_type, base64_data))
 }
+

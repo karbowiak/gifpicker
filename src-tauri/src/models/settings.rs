@@ -10,6 +10,7 @@ pub struct Settings {
     pub close_after_selection: bool,
     pub launch_at_startup: bool,
     pub theme: Theme,
+    pub clipboard_mode: ClipboardMode,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -20,20 +21,28 @@ pub enum Theme {
     System,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum ClipboardMode {
+    File,
+    Url,
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
             giphy_api_key: None,
             #[cfg(target_os = "macos")]
-            hotkey: "Cmd+G".to_string(),
+            hotkey: "Option+Cmd+G".to_string(),
             #[cfg(not(target_os = "macos"))]
-            hotkey: "Ctrl+G".to_string(),
+            hotkey: "Ctrl+Shift+G".to_string(),
             window_width: 800,
             window_height: 600,
             max_item_width: 400,
             close_after_selection: true,
             launch_at_startup: false,
             theme: Theme::System,
+            clipboard_mode: ClipboardMode::File,
         }
     }
 }

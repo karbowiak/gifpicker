@@ -2,9 +2,13 @@
   import { showSettings } from '$lib/stores/ui';
   import { settings } from '$lib/stores/settings';
   import { showToast } from '$lib/stores/ui';
+  import { invoke } from '@tauri-apps/api/core';
+  import type { ClipboardMode } from '$lib/types';
 
   let giphyApiKey = '';
   let closeAfterSelection = true;
+  let clipboardMode: ClipboardMode = 'file';
+  let hotkey = '';
   let currentSettings: any = null;
   let isSaving = false;
 
@@ -14,6 +18,8 @@
       currentSettings = $settings;
       giphyApiKey = $settings.giphy_api_key || '';
       closeAfterSelection = $settings.close_after_selection ?? true;
+      clipboardMode = $settings.clipboard_mode || 'file';
+      hotkey = $settings.hotkey || 'Cmd+G';
     }
   });
 
@@ -40,10 +46,23 @@
       const newSettings = {
         ...currentSettings,
         giphy_api_key: giphyApiKey.trim(),
-        close_after_selection: closeAfterSelection
+        close_after_selection: closeAfterSelection,
+        clipboard_mode: clipboardMode,
+        hotkey: hotkey.trim()
       };
 
       await settings.save(newSettings);
+
+      // Re-register the hotkey if it changed
+      try {
+        await invoke('register_hotkey', { hotkey: hotkey.trim() });
+      } catch (error) {
+        console.error('Failed to register hotkey:', error);
+        showToast('Settings saved but hotkey registration failed', 'error');
+        isSaving = false;
+        return;
+      }
+
       showToast('Settings saved successfully!', 'success');
       closeModal();
     } catch (error) {
@@ -111,6 +130,39 @@
           <span class="setting-label">Close window after copying</span>
         </label>
         <span class="setting-description">Automatically close the app after selecting a GIF</span>
+      </div>
+
+      <div class="setting-group">
+        <label for="clipboard-mode">
+          <span class="setting-label">Clipboard Mode</span>
+          <span class="setting-description">
+            Choose what to copy: the GIF file itself or just the URL
+          </span>
+        </label>
+        <select
+          id="clipboard-mode"
+          class="setting-input"
+          bind:value={clipboardMode}
+        >
+          <option value="file">Copy GIF File (works in Discord, Slack, etc.)</option>
+          <option value="url">Copy GIF URL (link only)</option>
+        </select>
+      </div>
+
+      <div class="setting-group">
+        <label for="hotkey">
+          <span class="setting-label">Global Hotkey</span>
+          <span class="setting-description">
+            Keyboard shortcut to show/hide the GIF Picker (e.g., Cmd+G, Ctrl+Shift+G)
+          </span>
+        </label>
+        <input
+          id="hotkey"
+          type="text"
+          class="setting-input"
+          placeholder="e.g., Cmd+G or Ctrl+Shift+G"
+          bind:value={hotkey}
+        />
       </div>
     </div>
 

@@ -12,14 +12,31 @@
   "app": {
     "windows": [
       {
-        "title": "gifpicker",
+        "label": "main",
+        "title": "GIF Picker",
         "width": 800,
-        "height": 600
+        "height": 600,
+        "visible": false,
+        "center": true,
+        "resizable": true,
+        "decorations": true,
+        "skipTaskbar": false,
+        "alwaysOnTop": false,
+        "focus": true
       }
     ],
     "security": {
-      "csp": null
-    }
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "$APPDATA/**",
+          "$APPDATA/media/**",
+          "**"
+        ]
+      }
+    },
+    "withGlobalTauri": false
   },
   "bundle": {
     "active": true,

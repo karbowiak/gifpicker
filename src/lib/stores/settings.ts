@@ -5,13 +5,14 @@ import type { Settings } from '$lib/types';
 // Default settings
 const defaultSettings: Settings = {
   giphy_api_key: undefined,
-  hotkey: 'Cmd+G',
+  hotkey: 'Option+Cmd+G',
   window_width: 800,
   window_height: 600,
   max_item_width: 400,
   close_after_selection: true,
   launch_at_startup: false,
-  theme: 'system'
+  theme: 'system',
+  clipboard_mode: 'file'
 };
 
 // Settings store
