@@ -6,7 +6,7 @@ GIF Picker is a native desktop application for searching, managing, and copying 
 - **Frontend**: Svelte 4 + SvelteKit + TypeScript + Vite
 - **Backend**: Tauri 2.x + Rust
 - **Database**: SQLite with sqlx migrations
-- **API**: Giphy API for GIF search
+- **API**: Klipy API for GIF search
 
 ## Architecture
 
@@ -20,9 +20,9 @@ GIF Picker is a native desktop application for searching, managing, and copying 
   - `Toast.svelte` - Notification system
   - `ContextMenu.svelte` - Right-click context menu
 - `lib/stores/` - Svelte stores for state management
-  - `search.ts` - Search query and results (local + Giphy)
+  - `search.ts` - Search query and results (local + Klipy)
   - `favorites.ts` - Favorited GIFs management
-  - `settings.ts` - User settings (Giphy API key, preferences)
+  - `settings.ts` - User settings (preferences)
   - `ui.ts` - UI state (selections, modals, toasts)
 - `lib/types.ts` - TypeScript interfaces
 
@@ -30,13 +30,13 @@ GIF Picker is a native desktop application for searching, managing, and copying 
 - `src/main.rs` - Entry point
 - `src/lib.rs` - Tauri app setup and command registration
 - `src/commands/` - Tauri command handlers (Rust → Frontend bridge)
-  - `search.rs` - Search local favorites and Giphy
+  - `search.rs` - Search local favorites and Klipy
   - `favorites.rs` - CRUD operations for favorites
   - `clipboard.rs` - Copy GIFs to clipboard
   - `files.rs` - Read local files as base64 data URLs
   - `settings.rs` - Get/save user settings
 - `src/services/` - Business logic services
-  - `giphy.rs` - Giphy API client (search, trending, get by ID)
+  - `klipy.rs` - Klipy API client (search, trending, categories)
   - `downloader.rs` - Download and cache GIF files locally
   - `clipboard.rs` - Platform-specific clipboard (macOS uses osascript)
 - `src/db/` - Database layer
@@ -53,8 +53,8 @@ GIF Picker is a native desktop application for searching, managing, and copying 
 ## Key Features
 
 ### 1. GIF Search & Favorites
-- Search Giphy API or local favorites
-- Add Giphy GIFs to favorites (downloads and caches locally)
+- Search Klipy API or local favorites
+- Add Klipy GIFs to favorites (downloads and caches locally)
 - Local cache: `~/Library/Application Support/com.karbowiak.gifpicker/media/gifs/`
 - Each favorite has both `filepath` (local cache) and `gif_url` (backup/original)
 
@@ -77,10 +77,8 @@ GIF Picker is a native desktop application for searching, managing, and copying 
 - Selection state maintained in `selectedIndex` store
 
 ### 5. Settings System
-- **First run**: Forces settings modal if no Giphy API key
-- **Required**: API key is mandatory (no default/env key)
 - **Stored**: SQLite database with JSON serialization
-- **UI**: Modal with validation, link to developers.giphy.com
+- **UI**: Modal with preferences, link to Klipy
 
 ## Database Schema
 
@@ -89,8 +87,8 @@ GIF Picker is a native desktop application for searching, managing, and copying 
 id INTEGER PRIMARY KEY
 filename TEXT NOT NULL
 filepath TEXT (nullable - for backward compatibility)
-gif_url TEXT (nullable - original Giphy URL)
-source_id TEXT (Giphy ID)
+gif_url TEXT (nullable - original Klipy URL)
+source_id TEXT (Klipy ID)
 source_url TEXT
 file_size INTEGER
 width INTEGER
@@ -207,8 +205,8 @@ bun run tauri build
 ## Environment Setup
 
 ### No .env files!
-- Project deliberately avoids environment variables
-- Users provide their own Giphy API key via Settings UI
+### No .env files!
+- Project uses internal configuration for Keys
 - This ensures security and proper key management
 
 ### Dependencies
@@ -226,7 +224,7 @@ bun run tauri build
 **Solution**: Lazy loading with IntersectionObserver + caching
 
 ### Issue: Clipboard pastes static PNG
-**Solution**: Use Giphy's `images.original.url` (not `downsized.url`)
+**Solution**: Use Klipy's high-quality GIF URL
 
 ### Issue: macOS clipboard doesn't paste in Discord
 **Solution**: Use osascript to copy file reference, not path string

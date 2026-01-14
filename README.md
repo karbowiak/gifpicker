@@ -4,7 +4,7 @@ A fast, native GIF picker app built with Tauri, SvelteKit, and TypeScript. Searc
 
 ## Features
 
-- 🔍 Search GIFs via Giphy API
+- 🔍 Search GIFs via Klipy API
 - ⭐ Save favorites locally with offline access
 - ⌨️ Keyboard navigation (Arrow keys, Enter, Escape)
 - 📋 Copy GIFs to clipboard (works with Discord, Slack, etc.)
@@ -43,15 +43,6 @@ bun run tauri dev
 # Build for production
 bun run tauri build
 ```
-
-## Configuration
-
-On first run, you'll be prompted to add your Giphy API key:
-
-1. Visit [developers.giphy.com](https://developers.giphy.com)
-2. Login and create an app
-3. Copy your API key
-4. Paste it in the Settings panel
 
 ## Recommended IDE Setup
 

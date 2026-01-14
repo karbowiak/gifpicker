@@ -39,5 +39,5 @@ CREATE INDEX idx_favorites_created_at ON favorites(created_at);
 CREATE INDEX IF NOT EXISTS idx_favorites_created_at ON favorites(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_favorites_use_count ON favorites(use_count DESC);
 
--- Add unique constraint on source_id for Giphy GIFs
+-- Add unique constraint on source_id for Klipy GIFs
 CREATE UNIQUE INDEX IF NOT EXISTS idx_favorites_source_id ON favorites(source, source_id) WHERE source_id IS NOT NULL;
