@@ -13,12 +13,10 @@ impl<'a> SettingsDb<'a> {
     }
 
     pub async fn get(&self) -> Result<Settings> {
-        let rows = sqlx::query_as::<_, (String, String)>(
-            "SELECT key, value FROM settings"
-        )
-        .fetch_all(self.pool)
-        .await
-        .context("Failed to fetch settings")?;
+        let rows = sqlx::query_as::<_, (String, String)>("SELECT key, value FROM settings")
+            .fetch_all(self.pool)
+            .await
+            .context("Failed to fetch settings")?;
 
         if rows.is_empty() {
             // Return default settings if none exist
@@ -29,15 +27,37 @@ impl<'a> SettingsDb<'a> {
         let mut settings = Settings::default();
         for (key, value) in rows {
             match key.as_str() {
-                "giphy_api_key" => settings.giphy_api_key = serde_json::from_str(&value).ok(),
-                "hotkey" => settings.hotkey = serde_json::from_str(&value).unwrap_or(settings.hotkey),
-                "window_width" => settings.window_width = serde_json::from_str(&value).unwrap_or(settings.window_width),
-                "window_height" => settings.window_height = serde_json::from_str(&value).unwrap_or(settings.window_height),
-                "max_item_width" => settings.max_item_width = serde_json::from_str(&value).unwrap_or(settings.max_item_width),
-                "close_after_selection" => settings.close_after_selection = serde_json::from_str(&value).unwrap_or(settings.close_after_selection),
-                "launch_at_startup" => settings.launch_at_startup = serde_json::from_str(&value).unwrap_or(settings.launch_at_startup),
+                "hotkey" => {
+                    settings.hotkey = serde_json::from_str(&value).unwrap_or(settings.hotkey)
+                }
+                "window_width" => {
+                    settings.window_width =
+                        serde_json::from_str(&value).unwrap_or(settings.window_width)
+                }
+                "window_height" => {
+                    settings.window_height =
+                        serde_json::from_str(&value).unwrap_or(settings.window_height)
+                }
+                "max_item_width" => {
+                    settings.max_item_width =
+                        serde_json::from_str(&value).unwrap_or(settings.max_item_width)
+                }
+                "close_after_selection" => {
+                    settings.close_after_selection =
+                        serde_json::from_str(&value).unwrap_or(settings.close_after_selection)
+                }
+                "launch_at_startup" => {
+                    settings.launch_at_startup =
+                        serde_json::from_str(&value).unwrap_or(settings.launch_at_startup)
+                }
                 "theme" => settings.theme = serde_json::from_str(&value).unwrap_or(settings.theme),
-                "clipboard_mode" => settings.clipboard_mode = serde_json::from_str(&value).unwrap_or(settings.clipboard_mode),
+                "clipboard_mode" => {
+                    settings.clipboard_mode =
+                        serde_json::from_str(&value).unwrap_or(settings.clipboard_mode)
+                }
+                "show_ads" => {
+                    settings.show_ads = serde_json::from_str(&value).unwrap_or(settings.show_ads)
+                }
                 _ => {}
             }
         }
@@ -54,15 +74,33 @@ impl<'a> SettingsDb<'a> {
 
         // Insert all settings
         let pairs = vec![
-            ("giphy_api_key", serde_json::to_string(&settings.giphy_api_key)?),
             ("hotkey", serde_json::to_string(&settings.hotkey)?),
-            ("window_width", serde_json::to_string(&settings.window_width)?),
-            ("window_height", serde_json::to_string(&settings.window_height)?),
-            ("max_item_width", serde_json::to_string(&settings.max_item_width)?),
-            ("close_after_selection", serde_json::to_string(&settings.close_after_selection)?),
-            ("launch_at_startup", serde_json::to_string(&settings.launch_at_startup)?),
+            (
+                "window_width",
+                serde_json::to_string(&settings.window_width)?,
+            ),
+            (
+                "window_height",
+                serde_json::to_string(&settings.window_height)?,
+            ),
+            (
+                "max_item_width",
+                serde_json::to_string(&settings.max_item_width)?,
+            ),
+            (
+                "close_after_selection",
+                serde_json::to_string(&settings.close_after_selection)?,
+            ),
+            (
+                "launch_at_startup",
+                serde_json::to_string(&settings.launch_at_startup)?,
+            ),
             ("theme", serde_json::to_string(&settings.theme)?),
-            ("clipboard_mode", serde_json::to_string(&settings.clipboard_mode)?),
+            (
+                "clipboard_mode",
+                serde_json::to_string(&settings.clipboard_mode)?,
+            ),
+            ("show_ads", serde_json::to_string(&settings.show_ads)?),
         ];
 
         for (key, value) in pairs {
@@ -125,14 +163,12 @@ mod tests {
         let settings_db = SettingsDb::new(db.pool());
 
         let mut settings = Settings::default();
-        settings.giphy_api_key = Some("test_key_123".to_string());
         settings.window_width = 1024;
         settings.theme = Theme::Dark;
 
         settings_db.save(&settings).await.unwrap();
 
         let retrieved = settings_db.get().await.unwrap();
-        assert_eq!(retrieved.giphy_api_key, Some("test_key_123".to_string()));
         assert_eq!(retrieved.window_width, 1024);
         assert_eq!(retrieved.theme, Theme::Dark);
     }
@@ -142,7 +178,10 @@ mod tests {
         let (db, _temp) = create_test_db().await;
         let settings_db = SettingsDb::new(db.pool());
 
-        settings_db.update_key("hotkey", serde_json::to_string("Ctrl+Shift+G").unwrap()).await.unwrap();
+        settings_db
+            .update_key("hotkey", serde_json::to_string("Ctrl+Shift+G").unwrap())
+            .await
+            .unwrap();
 
         let settings = settings_db.get().await.unwrap();
         assert_eq!(settings.hotkey, "Ctrl+Shift+G");

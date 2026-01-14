@@ -1,6 +1,13 @@
 import { writable } from 'svelte/store';
 import { invoke } from '@tauri-apps/api/core';
-import type { Favorite, GiphyGifResult, GiphySearchResults, SearchResult } from '$lib/types';
+import { settings } from '$lib/stores/settings';
+import type { Favorite, KlipyGifResult, KlipySearchResults, KlipyCategory, KlipyCategoriesResult, SearchResult, ViewMode } from '$lib/types';
+
+// Current view mode
+export const viewMode = writable<ViewMode>('favorites');
+
+// Current category (when viewing a specific category)
+export const currentCategory = writable<KlipyCategory | null>(null);
 
 // Search query store
 export const searchQuery = writable<string>('');
@@ -8,8 +15,17 @@ export const searchQuery = writable<string>('');
 // Search results
 export const searchResults = writable<SearchResult>({
   local: [],
-  giphy: undefined
+  klipy: undefined
 });
+
+// Categories
+export const categories = writable<KlipyCategory[]>([]);
+
+// Autocomplete suggestions
+export const autocompleteSuggestions = writable<string[]>([]);
+
+// Search suggestions (related searches)
+export const searchSuggestions = writable<string[]>([]);
 
 // Loading state
 export const isSearching = writable<boolean>(false);
@@ -20,30 +36,30 @@ export const isLoadingMore = writable<boolean>(false);
 // Error state
 export const searchError = writable<string | null>(null);
 
-// Current offset for pagination
-let currentOffset = 0;
+// Current page for pagination
+let currentPage = 1;
 let currentQuery = '';
 let totalCount = 0;
-
-// Giphy API has a maximum offset of 4999
-const MAX_GIPHY_OFFSET = 4999;
+let hasMore = true;
 
 // Debounce timer
 let searchDebounceTimer: ReturnType<typeof setTimeout>;
 
-// Main search function - only searches Giphy when there's a query
-export async function performSearch(query: string, giphyApiKey?: string) {
+// Main search function
+export async function performSearch(query: string) {
   // If empty query, load all favorites
   if (!query.trim()) {
     try {
       const allFavorites = await invoke<Favorite[]>('get_all_favorites');
-      searchResults.set({ local: allFavorites, giphy: undefined });
+      searchResults.set({ local: allFavorites, klipy: undefined });
       currentQuery = '';
-      currentOffset = 0;
+      currentPage = 1;
+      currentPage = 1;
       totalCount = 0;
+      hasMore = false;
     } catch (error) {
       console.error('Failed to load favorites:', error);
-      searchResults.set({ local: [], giphy: undefined });
+      searchResults.set({ local: [], klipy: undefined });
     }
     return;
   }
@@ -51,8 +67,10 @@ export async function performSearch(query: string, giphyApiKey?: string) {
   isSearching.set(true);
   searchError.set(null);
   currentQuery = query;
-  currentOffset = 0;
+  currentPage = 1;
+  currentPage = 1;
   totalCount = 0;
+  hasMore = true;
 
   // Set a timeout to force reset loading state if it gets stuck (10 seconds)
   const timeoutId = setTimeout(() => {
@@ -60,24 +78,26 @@ export async function performSearch(query: string, giphyApiKey?: string) {
   }, 10000);
 
   try {
-    // Search only Giphy (no local favorites)
-    // Start with 25 results (similar to Giphy's own interface)
-    const result = await invoke<GiphySearchResults>('search_giphy', {
+    // Get show_ads setting
+    const currentSettings = settings.get();
+    const showAds = currentSettings?.show_ads ?? true;
+
+    // Search Klipy
+    const result = await invoke<KlipySearchResults>('search_klipy', {
       query,
-      limit: 25,
-      offset: 0,
-      apiKey: giphyApiKey || undefined
+      limit: 50,
+      page: 1,
+      showAds
     });
 
     // Set results with empty local array
     searchResults.set({
       local: [],
-      giphy: result
+      klipy: result
     });
 
     totalCount = result.total_count;
-    // Set offset to the actual number of results we have
-    currentOffset = result.gifs.length;
+    currentPage = result.page;
   } catch (error) {
     console.error('Search failed:', error);
     searchError.set(error as string);
@@ -88,12 +108,21 @@ export async function performSearch(query: string, giphyApiKey?: string) {
 }
 
 // Load more results for infinite scroll
-export async function loadMoreResults(giphyApiKey?: string) {
-  // Only load more if we have a query and we're not already loading
-  if (!currentQuery || currentOffset === 0) return;
+export async function loadMoreResults() {
+  // Only load more if we have a query, not already loading, and have more results
+  if (!currentQuery || currentPage === 0 || !hasMore) return;
 
-  // Check if we've reached Giphy's limit or the end of results
-  if (currentOffset >= MAX_GIPHY_OFFSET || currentOffset >= totalCount) {
+  // Check if we've reached the end of results
+  const currentResults = await new Promise<SearchResult>(resolve => {
+    searchResults.subscribe(value => resolve(value))();
+  });
+
+  const currentGifCount = currentResults.klipy?.gifs.length || 0;
+
+
+  // If totalCount is valid and we've reached it, stop
+  if (totalCount > 0 && currentGifCount >= totalCount) {
+    hasMore = false;
     return;
   }
 
@@ -105,41 +134,49 @@ export async function loadMoreResults(giphyApiKey?: string) {
   }, 10000);
 
   try {
-    // Load next batch (25 results like Giphy's interface)
-    const result = await invoke<GiphySearchResults>('search_giphy', {
+    // Get show_ads setting
+    const currentSettings = settings.get();
+    const showAds = currentSettings?.show_ads ?? true;
+
+    // Load next page
+    const nextPage = currentPage + 1;
+    const result = await invoke<KlipySearchResults>('search_klipy', {
       query: currentQuery,
-      limit: 25,
-      offset: currentOffset,
-      apiKey: giphyApiKey || undefined
+      limit: 50,
+      page: nextPage,
+      showAds
     });
 
     // If no results returned, we've reached the end
     if (!result.gifs || result.gifs.length === 0) {
+      hasMore = false;
       return;
     }
 
     // Append new results to existing ones, filtering out duplicates
     searchResults.update(current => {
-      const existingGifs = current.giphy?.gifs || [];
+      const existingGifs = current.klipy?.gifs || [];
       const newGifs = result.gifs || [];
-      
-      // Create a Set of existing IDs for fast lookup
-      const existingIds = new Set(existingGifs.map(gif => gif.id));
-      
+
+      // Create a Set of existing slugs for fast lookup
+      const existingSlugs = new Set(existingGifs.map(gif => gif.slug));
+
       // Filter out duplicates from new results
-      const uniqueNewGifs = newGifs.filter(gif => !existingIds.has(gif.id));
+      const uniqueNewGifs = newGifs.filter(gif => !existingSlugs.has(gif.slug));
+
+
 
       return {
         ...current,
-        giphy: {
+        klipy: {
           ...result,
           gifs: [...existingGifs, ...uniqueNewGifs]
         }
       };
     });
 
-    // Update offset to the actual number of GIFs we now have
-    currentOffset += result.gifs.length;
+    // Update page
+    currentPage = nextPage;
   } catch (error) {
     console.error('Failed to load more results:', error);
   } finally {
@@ -149,10 +186,10 @@ export async function loadMoreResults(giphyApiKey?: string) {
 }
 
 // Debounced search
-export function debouncedSearch(query: string, giphyApiKey?: string, delay: number = 300) {
+export function debouncedSearch(query: string, delay: number = 300) {
   clearTimeout(searchDebounceTimer);
   searchDebounceTimer = setTimeout(() => {
-    performSearch(query, giphyApiKey);
+    performSearch(query);
   }, delay);
 }
 
@@ -161,30 +198,35 @@ export function cancelPendingSearch() {
   clearTimeout(searchDebounceTimer);
 }
 
-// Download Giphy GIF
-export async function downloadGiphyGif(gif: GiphyGifResult): Promise<Favorite> {
+// Download Klipy GIF
+export async function downloadKlipyGif(gif: KlipyGifResult): Promise<Favorite> {
   try {
-    const favorite = await invoke<Favorite>('download_giphy_gif', {
-      giphyId: gif.id,
+    const favorite = await invoke<Favorite>('download_klipy_gif', {
+      klipySlug: gif.slug,
       gifUrl: gif.gif_url,
+      mp4Url: gif.mp4_url,
       title: gif.title,
       width: gif.width,
       height: gif.height
     });
     return favorite;
   } catch (error) {
-    console.error('Failed to download Giphy GIF:', error);
+    console.error('Failed to download Klipy GIF:', error);
     throw error;
   }
 }
 
 // Get trending GIFs
-export async function getTrending(giphyApiKey: string, limit: number = 20, offset: number = 0) {
+export async function getTrending(limit: number = 50, page: number = 1) {
   try {
-    const result = await invoke<GiphySearchResults>('get_giphy_trending', {
+    // Get show_ads setting
+    const currentSettings = settings.get();
+    const showAds = currentSettings?.show_ads ?? true;
+
+    const result = await invoke<KlipySearchResults>('get_klipy_trending', {
       limit,
-      offset,
-      apiKey: giphyApiKey
+      page,
+      showAds
     });
     return result;
   } catch (error) {
@@ -193,18 +235,182 @@ export async function getTrending(giphyApiKey: string, limit: number = 20, offse
   }
 }
 
+// Load trending GIFs into results
+export async function loadTrending() {
+  isSearching.set(true);
+  viewMode.set('trending');
+  currentCategory.set(null);
+  
+  try {
+    const result = await getTrending(50, 1);
+    searchResults.set({
+      local: [],
+      klipy: result
+    });
+    currentPage = 1;
+    totalCount = result.total_count;
+    hasMore = result.gifs.length < result.total_count;
+  } catch (error) {
+    console.error('Failed to load trending:', error);
+  } finally {
+    isSearching.set(false);
+  }
+}
+
+// Get categories
+export async function getCategories() {
+  try {
+    const currentSettings = settings.get();
+    const showAds = currentSettings?.show_ads ?? true;
+
+    const result = await invoke<KlipyCategoriesResult>('get_klipy_categories', {
+      showAds
+    });
+    return result.categories;
+  } catch (error) {
+    console.error('Failed to get categories:', error);
+    throw error;
+  }
+}
+
+// Load categories
+export async function loadCategories() {
+  isSearching.set(true);
+  viewMode.set('categories');
+  currentCategory.set(null);
+  
+  try {
+    const cats = await getCategories();
+    categories.set(cats);
+    searchResults.set({ local: [], klipy: undefined });
+  } catch (error) {
+    console.error('Failed to load categories:', error);
+  } finally {
+    isSearching.set(false);
+  }
+}
+
+// Load GIFs for a specific category (searches by category name)
+export async function loadCategoryGifs(category: KlipyCategory) {
+  isSearching.set(true);
+  viewMode.set('category');
+  currentCategory.set(category);
+  currentQuery = category.name;
+  currentPage = 1;
+  
+  try {
+    const currentSettings = settings.get();
+    const showAds = currentSettings?.show_ads ?? true;
+
+    const result = await invoke<KlipySearchResults>('search_klipy', {
+      query: category.name,
+      limit: 50,
+      page: 1,
+      showAds
+    });
+
+    searchResults.set({
+      local: [],
+      klipy: result
+    });
+    totalCount = result.total_count;
+    hasMore = result.gifs.length < result.total_count;
+  } catch (error) {
+    console.error('Failed to load category GIFs:', error);
+  } finally {
+    isSearching.set(false);
+  }
+}
+
+// Go back to favorites view
+export async function goHome() {
+  viewMode.set('favorites');
+  currentCategory.set(null);
+  clearSearch();
+  
+  try {
+    const allFavorites = await invoke<Favorite[]>('get_all_favorites');
+    searchResults.set({ local: allFavorites, klipy: undefined });
+  } catch (error) {
+    console.error('Failed to load favorites:', error);
+  }
+}
+
 // Clear search
 export function clearSearch() {
   // Cancel any pending debounced searches
   cancelPendingSearch();
-  
+
   // Reset all state
   searchQuery.set('');
-  searchResults.set({ local: [], giphy: undefined });
+  searchResults.set({ local: [], klipy: undefined });
   searchError.set(null);
   isSearching.set(false);
   isLoadingMore.set(false);
+  autocompleteSuggestions.set([]);
+  searchSuggestions.set([]);
   currentQuery = '';
-  currentOffset = 0;
+  currentPage = 1;
+  currentPage = 1;
   totalCount = 0;
+  hasMore = false;
+}
+
+// Autocomplete debounce timer
+let autocompleteTimer: ReturnType<typeof setTimeout>;
+
+// Get autocomplete suggestions
+export async function getAutocomplete(query: string) {
+  if (!query.trim() || query.length < 2) {
+    autocompleteSuggestions.set([]);
+    return;
+  }
+
+  // Debounce autocomplete
+  clearTimeout(autocompleteTimer);
+  autocompleteTimer = setTimeout(async () => {
+    try {
+      const currentSettings = settings.get();
+      const showAds = currentSettings?.show_ads ?? true;
+
+      const results = await invoke<string[]>('get_autocomplete', {
+        query,
+        limit: 8,
+        showAds
+      });
+      autocompleteSuggestions.set(results);
+    } catch (error) {
+      console.error('Failed to get autocomplete:', error);
+      autocompleteSuggestions.set([]);
+    }
+  }, 150);
+}
+
+// Clear autocomplete
+export function clearAutocomplete() {
+  clearTimeout(autocompleteTimer);
+  autocompleteSuggestions.set([]);
+}
+
+// Get search suggestions (related searches)
+export async function fetchSearchSuggestions(query: string) {
+  if (!query.trim()) {
+    searchSuggestions.set([]);
+    return;
+  }
+
+  try {
+    const currentSettings = settings.get();
+    const showAds = currentSettings?.show_ads ?? true;
+
+    const results = await invoke<string[]>('get_search_suggestions', {
+      query,
+      limit: 15,
+      showAds
+    });
+    searchSuggestions.set(results);
+  } catch (error) {
+    console.error('Failed to get search suggestions:', error);
+    searchSuggestions.set([]);
+  }
 }

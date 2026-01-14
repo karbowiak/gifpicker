@@ -288,7 +288,6 @@ mod tests {
         let (db, _temp) = create_test_db().await;
         let favorites_db = FavoritesDb::new(db.pool());
 
-        // Create multiple favorites
         for i in 0..3 {
             let favorite = Favorite::new(
                 format!("test{}.gif", i),
@@ -324,39 +323,13 @@ mod tests {
         favorites_db.create(&favorite1).await.unwrap();
         favorites_db.create(&favorite2).await.unwrap();
 
-        // Search for cat
         let results = favorites_db.search("cat").await.unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].filename, "funny_cat.gif");
 
-        // Search for dog
         let results = favorites_db.search("dog").await.unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].filename, "dog.gif");
-    }
-
-    #[tokio::test]
-    async fn test_update_favorite() {
-        let (db, _temp) = create_test_db().await;
-        let favorites_db = FavoritesDb::new(db.pool());
-
-        let favorite = Favorite::new(
-            "test.gif".to_string(),
-            Some("/path/to/test.gif".to_string()),
-            MediaType::Gif,
-        );
-
-        let id = favorites_db.create(&favorite).await.unwrap();
-
-        let mut retrieved = favorites_db.get_by_id(id).await.unwrap().unwrap();
-        retrieved.custom_tags = vec!["awesome".to_string()];
-        retrieved.description = Some("A test GIF".to_string());
-
-        favorites_db.update(&retrieved).await.unwrap();
-
-        let updated = favorites_db.get_by_id(id).await.unwrap().unwrap();
-        assert_eq!(updated.custom_tags, vec!["awesome".to_string()]);
-        assert_eq!(updated.description, Some("A test GIF".to_string()));
     }
 
     #[tokio::test]

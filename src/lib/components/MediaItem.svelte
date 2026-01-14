@@ -1,129 +1,132 @@
 <script lang="ts">
-  import type { Favorite, GiphyGifResult } from '$lib/types';
-  import { isFavorite } from '$lib/types';
-  import { openContextMenu } from '$lib/stores/ui';
-  import { showToast } from '$lib/stores/ui';
-  import { settings } from '$lib/stores/settings';
-  import { invoke } from '@tauri-apps/api/core';
-  import { convertFileSrc } from '@tauri-apps/api/core';
-  import { onMount, onDestroy } from 'svelte';
+  import type { Favorite, KlipyGifResult } from "$lib/types";
+  import { isFavorite } from "$lib/types";
+  import { openContextMenu, showToast } from "$lib/stores/ui";
+  import { settings } from "$lib/stores/settings";
+  import { favorites } from "$lib/stores/favorites";
+  import { invoke } from "@tauri-apps/api/core";
+  import { convertFileSrc } from "@tauri-apps/api/core";
+  import { onMount, onDestroy } from "svelte";
 
-  export let item: Favorite | GiphyGifResult;
+  export let item: Favorite | KlipyGifResult;
+  export let index: number = 0;
   export let selected: boolean = false;
-  export let onClick: (item: Favorite | GiphyGifResult) => void = () => {};
+  export let onClick: (item: Favorite | KlipyGifResult) => void = () => {};
+  export let onHover: () => void = () => {};
+  export let onLeave: () => void = () => {};
 
   let isLoading = false;
   let imageLoaded = false;
   let imageError = false;
-  let imageUrl = '';
+  let imageUrl = "";
   let imageElement: HTMLImageElement | HTMLVideoElement;
   let containerElement: HTMLDivElement;
   let observer: IntersectionObserver;
-  let hasLoadedOnce = false; // Track if we've tried loading
-  let isInView = false; // Track if currently in viewport
+  let hasLoadedOnce = false;
+  let isVisible = false;
 
-  // Cache for data URLs to avoid reloading
   const dataUrlCache = new Map<string, string>();
 
-  // Get the appropriate properties based on item type
-  $: isLocalFavorite = isFavorite(item);
-  $: title = isLocalFavorite
-    ? (item as Favorite).filename.replace(/\.[^/.]+$/, '') // Remove extension
-    : (item as GiphyGifResult).title || 'Untitled';
-  $: metadata = isLocalFavorite
-    ? `${(item as Favorite).width || '?'}x${(item as Favorite).height || '?'} • Used ${(item as Favorite).use_count || 0} times`
-    : `${(item as GiphyGifResult).width}x${(item as GiphyGifResult).height}`;
+  // Grid row span calculation - each row is 10px, add 1 for gap compensation
+  const ROW_HEIGHT = 10;
+  $: rowSpan = Math.ceil((getBaseHeight() / ROW_HEIGHT)) + 1;
 
-  // Load image URL only when visible (lazy loading)
+  function getBaseHeight(): number {
+    // Target column width ~150px, calculate height from aspect ratio
+    const targetWidth = 150;
+    const ratio = getAspectRatio(item);
+    return targetWidth / ratio;
+  }
+
+  $: isLocalFavorite = isFavorite(item);
+
+  // Check if this Klipy result is already in our favorites
+  $: matchedFavorite =
+    !isLocalFavorite && (item as KlipyGifResult).slug
+      ? $favorites.find((f) => f.source_id === (item as KlipyGifResult).slug)
+      : undefined;
+
+  // Track favorite state locally to update UI immediately on click
+  let isFavoritedLocally = false;
+  $: isFavorited = isLocalFavorite || !!matchedFavorite || isFavoritedLocally;
+
+  $: aspectRatio = getAspectRatio(item);
+  $: title = isLocalFavorite
+    ? (item as Favorite).description || (item as Favorite).filename
+    : (item as KlipyGifResult).title || "Untitled";
+
+  function getAspectRatio(item: Favorite | KlipyGifResult): number {
+    const w = isLocalFavorite
+      ? (item as Favorite).width
+      : (item as KlipyGifResult).width;
+    const h = isLocalFavorite
+      ? (item as Favorite).height
+      : (item as KlipyGifResult).height;
+    if (w && h && h > 0) return w / h;
+    return 1.33;
+  }
+
   async function loadImageUrl() {
-    if (hasLoadedOnce) return; // Already tried loading, don't retry
+    if (hasLoadedOnce) return;
     hasLoadedOnce = true;
 
     if (isLocalFavorite) {
       const favorite = item as Favorite;
-
-      // Prefer MP4 for display if available (much better performance)
+      // Use MP4 for display if available (better performance)
       if (favorite.mp4_filepath) {
         try {
-          const assetUrl = convertFileSrc(favorite.mp4_filepath);
-          imageUrl = assetUrl;
-          dataUrlCache.set(favorite.mp4_filepath, assetUrl);
+          imageUrl = convertFileSrc(favorite.mp4_filepath);
           return;
-        } catch (error) {
-          console.error('Failed to convert MP4 to asset URL:', error);
-          // Fall through to try GIF
-        }
+        } catch (e) {}
       }
-
-      // Fall back to GIF
       if (favorite.filepath) {
-        // Check cache first
         if (dataUrlCache.has(favorite.filepath)) {
           imageUrl = dataUrlCache.get(favorite.filepath)!;
           return;
         }
-
-        // Use Tauri's convertFileSrc for proper asset protocol handling
         try {
-          const assetUrl = convertFileSrc(favorite.filepath);
-          imageUrl = assetUrl;
-          dataUrlCache.set(favorite.filepath, assetUrl); // Cache it
-        } catch (error) {
-          console.error('Failed to convert to asset URL:', error);
-          // Fallback to gif_url if available
-          if (favorite.gif_url) {
-            imageUrl = favorite.gif_url;
-          } else {
-            imageError = true;
-          }
+          imageUrl = convertFileSrc(favorite.filepath);
+          dataUrlCache.set(favorite.filepath, imageUrl);
+        } catch (e) {
+          if (favorite.gif_url) imageUrl = favorite.gif_url;
+          else imageError = true;
         }
       } else if (favorite.gif_url) {
-        // Use gif_url directly
         imageUrl = favorite.gif_url;
       } else {
         imageError = true;
       }
     } else {
-      // For Giphy search results, prefer MP4 (better performance), fallback to GIF
-      const giphyResult = item as GiphyGifResult;
-      imageUrl = giphyResult.mp4_url || giphyResult.gif_url;
+      const klipyResult = item as KlipyGifResult;
+      // Use MP4 for display if available (better performance)
+      imageUrl = klipyResult.mp4_url || klipyResult.gif_url;
     }
   }
 
   onMount(() => {
-    // Set up Intersection Observer for lazy loading and viewport tracking
+    // Get the scroll container for proper intersection detection
+    const scrollContainer = containerElement?.closest('.masonry-layout');
+    
     observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
-          isInView = entry.isIntersecting;
-
-          // Load image when coming into view (with buffer)
-          if (entry.isIntersecting && !hasLoadedOnce) {
-            loadImageUrl();
-          }
-
-          // Performance optimization: Hide image when far out of view
-          // This helps reduce GPU/CPU usage for GIF rendering
-          if (imageElement) {
-            if (entry.isIntersecting || entry.intersectionRatio > 0) {
-              // In or near viewport - show image
-              imageElement.style.visibility = 'visible';
+          isVisible = entry.isIntersecting;
+          
+          if (entry.isIntersecting && !hasLoadedOnce) loadImageUrl();
+          
+          // Pause/play videos based on visibility to save CPU
+          if (imageElement && imageElement instanceof HTMLVideoElement) {
+            if (entry.isIntersecting) {
+              imageElement.play().catch(() => {});
             } else {
-              // Far from viewport - hide but keep space (better than display:none)
-              imageElement.style.visibility = 'hidden';
+              imageElement.pause();
             }
           }
         });
       },
-      {
-        rootMargin: '400px', // Large buffer for smooth experience
-        threshold: 0.01
-      }
+      { root: scrollContainer, rootMargin: "100px", threshold: 0.01 },
     );
-
-    if (containerElement) {
-      observer.observe(containerElement);
-    }
+    if (containerElement) observer.observe(containerElement);
   });
 
   onDestroy(() => {
@@ -133,123 +136,83 @@
     }
   });
 
-  // Handle image load
   function handleImageLoad() {
     imageLoaded = true;
   }
-
-  // Handle image error
   function handleImageError() {
     imageError = true;
-    console.error('Failed to load image:', imageUrl);
   }
 
-  // Handle click - copy to clipboard
   async function handleClick() {
     if (isLoading) return;
-
     onClick(item);
-
     isLoading = true;
 
     try {
-      const clipboardMode = $settings?.clipboard_mode || 'file';
+      const clipboardMode = $settings?.clipboard_mode || "file";
 
       if (isLocalFavorite) {
         const favorite = item as Favorite;
-
-        if (clipboardMode === 'file') {
-          // Copy the file itself (preserves GIF animation)
+        if (clipboardMode === "file") {
+          // Always use GIF for clipboard (Discord compatibility)
           if (favorite.filepath) {
-            await invoke('copy_file_path_to_clipboard', {
-              filePath: favorite.filepath
+            await invoke("copy_file_path_to_clipboard", {
+              filePath: favorite.filepath,
             });
           } else if (favorite.gif_url) {
-            // Fallback to URL if no local file
-            await invoke('copy_text_to_clipboard', {
-              text: favorite.gif_url
-            });
+            await invoke("copy_text_to_clipboard", { text: favorite.gif_url });
           }
-        } else {
-          // Copy URL mode - always use Giphy URL
-          if (favorite.gif_url) {
-            await invoke('copy_text_to_clipboard', {
-              text: favorite.gif_url
-            });
-          } else {
-            showToast('No Giphy URL available for this GIF', 'error');
-            isLoading = false;
-            return;
-          }
+        } else if (favorite.gif_url) {
+          await invoke("copy_text_to_clipboard", { text: favorite.gif_url });
         }
-
-        // Increment use count
-        await invoke('increment_use_count', {
-          id: favorite.id
-        });
-
-        showToast('Copied to clipboard!', 'success');
+        await invoke("increment_use_count", { id: favorite.id });
+        showToast("Copied!", "success");
       } else {
-        // For Giphy search results (not favorited yet)
-        const giphyResult = item as GiphyGifResult;
-
-        if (clipboardMode === 'file') {
-          // Download and copy the file
-          showToast('Downloading GIF...', 'info');
-          const result = await invoke<{filepath: string}>('download_giphy_gif', {
-            gifUrl: giphyResult.gif_url,
-            filename: `${giphyResult.id}.gif`
+        const klipyResult = item as KlipyGifResult;
+        if (clipboardMode === "file") {
+          // Always download GIF for clipboard (Discord compatibility)
+          const filePath = await invoke<string>("download_gif_temp", {
+            gifUrl: klipyResult.gif_url,
+            filename: `${klipyResult.slug}.gif`,
           });
-
-          await invoke('copy_file_path_to_clipboard', {
-            filePath: result.filepath
-          });
-          showToast('GIF copied to clipboard!', 'success');
+          await invoke("copy_file_path_to_clipboard", { filePath });
+          showToast("Copied!", "success");
         } else {
-          // Just copy the URL
-          await invoke('copy_text_to_clipboard', {
-            text: giphyResult.gif_url
-          });
-          showToast('GIF URL copied to clipboard!', 'success');
+          await invoke("copy_text_to_clipboard", { text: klipyResult.gif_url });
+          showToast("Copied URL!", "success");
         }
       }
     } catch (error) {
-      console.error('Failed to copy to clipboard:', error);
-      showToast('Failed to copy to clipboard', 'error');
+      console.error("Failed to copy:", error);
+      showToast("Failed to copy", "error");
     } finally {
       isLoading = false;
     }
   }
 
-  // Handle adding Giphy GIF to favorites
-  async function handleAddToFavorites(event: MouseEvent) {
-    event.stopPropagation(); // Prevent click from bubbling to parent
+  async function handleFavorite(event: MouseEvent) {
+    event.stopPropagation();
+    if (isFavorited) return;
 
-    if (isLocalFavorite) return; // Already a favorite
-
-    const giphyResult = item as GiphyGifResult;
-
+    const klipyResult = item as KlipyGifResult;
     try {
-      showToast('Adding to favorites...', 'info');
-
-      await invoke('add_giphy_favorite', {
-        gifUrl: giphyResult.gif_url,
-        mp4Url: giphyResult.mp4_url || null, // Pass MP4 URL if available
-        sourceId: giphyResult.id,
-        sourceUrl: giphyResult.url,
-        title: giphyResult.title || 'Untitled',
-        width: parseInt(giphyResult.width, 10),
-        height: parseInt(giphyResult.height, 10)
+      await invoke("add_klipy_favorite", {
+        gifUrl: klipyResult.gif_url,
+        mp4Url: klipyResult.mp4_url || null,
+        sourceId: klipyResult.slug,
+        sourceUrl: klipyResult.url,
+        title: klipyResult.title || "Untitled",
+        width: klipyResult.width,
+        height: klipyResult.height,
       });
-
-      showToast('Added to favorites!', 'success');
-    } catch (error) {
-      console.error('Failed to add to favorites:', error);
-      showToast('Failed to add to favorites', 'error');
+      isFavoritedLocally = true;
+      showToast("Added to favorites!", "success");
+    } catch (e) {
+      console.error("Failed to add to favorites:", e);
+      showToast("Failed to add", "error");
     }
   }
 
-  // Handle right-click context menu
   function handleContextMenu(event: MouseEvent) {
     event.preventDefault();
     openContextMenu(event.clientX, event.clientY, item);
@@ -261,32 +224,24 @@
   class="media-item"
   class:selected
   class:loading={isLoading}
+  style="--aspect: {aspectRatio}; grid-row: span {rowSpan};"
   on:click={handleClick}
   on:contextmenu={handleContextMenu}
+  on:mouseenter={onHover}
+  on:mouseleave={onLeave}
   role="button"
   tabindex="0"
-  on:keydown={(e) => e.key === 'Enter' && handleClick()}
+  on:keydown={(e) => e.key === "Enter" && handleClick()}
 >
-  <div class="image-wrapper">
-    {#if !imageLoaded && !imageError}
-      <div class="skeleton-loader"></div>
-    {/if}
-
+  <div class="media-wrapper">
     {#if imageError}
-      <div class="error-placeholder">
-        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z" fill="currentColor"/>
-        </svg>
-        <p>Failed to load</p>
-      </div>
+      <div class="error-placeholder">⚠️</div>
     {:else if imageUrl}
-      {#if (isLocalFavorite && (item as Favorite).mp4_filepath) || (!isLocalFavorite && (item as GiphyGifResult).mp4_url)}
-        <!-- Use video element for MP4 (much better performance) -->
+      {#if (isLocalFavorite && (item as Favorite).mp4_filepath) || (!isLocalFavorite && (item as KlipyGifResult).mp4_url)}
         <video
           bind:this={imageElement}
           src={imageUrl}
-          title={title}
-          class="media-image"
+          class="media"
           class:loaded={imageLoaded}
           autoplay
           loop
@@ -296,46 +251,53 @@
           on:error={handleImageError}
         ></video>
       {:else}
-        <!-- Use img element for GIFs (fallback) -->
         <img
           bind:this={imageElement}
           src={imageUrl}
-          alt={title}
-          class="media-image"
+          alt=""
+          class="media"
           class:loaded={imageLoaded}
           on:load={handleImageLoad}
           on:error={handleImageError}
         />
       {/if}
-    {/if}    {#if isLoading}
+    {:else}
+      <div class="skeleton"></div>
+    {/if}
+
+    {#if isLoading}
       <div class="loading-overlay">
         <div class="spinner"></div>
       </div>
     {/if}
 
-    <div class="overlay">
-      <div class="overlay-content">
-        <h3 class="title">{title}</h3>
-        <p class="metadata">{metadata}</p>
-        <div class="badges">
-          {#if !isLocalFavorite}
-            <span class="badge">Giphy</span>
-          {/if}
-        </div>
-      </div>
+    <!-- Favorite button (top-right) -->
+    <button
+      class="favorite-btn"
+      class:is-favorite={isFavorited}
+      class:visible={isFavorited}
+      on:click={handleFavorite}
+      aria-label={isFavorited ? "Favorited" : "Add to favorites"}
+    >
+      <svg
+        width="18"
+        height="18"
+        viewBox="0 0 24 24"
+        fill={isFavorited ? "currentColor" : "none"}
+      >
+        <path
+          d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"
+          stroke="currentColor"
+          stroke-width="2"
+        />
+      </svg>
+    </button>
 
-      {#if !isLocalFavorite}
-        <button
-          class="favorite-btn"
-          on:click={handleAddToFavorites}
-          title="Add to favorites"
-          aria-label="Add to favorites"
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" stroke="currentColor" stroke-width="2"/>
-          </svg>
-        </button>
-      {/if}
+    <!-- Hover overlay with title -->
+    <div class="hover-overlay">
+      <div class="overlay-info">
+        <span class="overlay-title">{title}</span>
+      </div>
     </div>
   </div>
 </div>
@@ -344,48 +306,60 @@
   .media-item {
     position: relative;
     cursor: pointer;
-    border-radius: 8px;
+    border-radius: 4px;
     overflow: hidden;
-    background: var(--bg-secondary, #f9fafb);
-    transition: all 0.2s ease;
-    border: 2px solid transparent;
+    background: var(--bg-secondary);
+    transition: box-shadow 0.15s ease, transform 0.15s ease, z-index 0s;
   }
 
   .media-item:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    box-shadow: 0 0 0 2px var(--accent-color);
   }
 
   .media-item.selected {
-    border-color: var(--accent-color, #3b82f6);
-    box-shadow: 0 0 0 2px var(--accent-color, #3b82f6);
+    box-shadow: 0 0 0 3px var(--accent-color), 0 8px 24px rgba(0, 0, 0, 0.4);
+    transform: scale(1.05);
+    z-index: 10;
   }
 
   .media-item.loading {
-    opacity: 0.7;
+    opacity: 0.6;
     pointer-events: none;
   }
 
-  .image-wrapper {
+  .media-wrapper {
     position: relative;
     width: 100%;
-    display: block;
+    height: 100%;
   }
 
-  .skeleton-loader {
+  .media {
+    display: block;
     width: 100%;
-    padding-bottom: 75%; /* 4:3 aspect ratio placeholder */
+    height: 100%;
+    object-fit: cover;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+  }
+
+  .media.loaded {
+    opacity: 1;
+  }
+
+  .skeleton {
+    width: 100%;
+    height: 100%;
     background: linear-gradient(
       90deg,
-      var(--bg-secondary, #f9fafb) 25%,
-      var(--bg-tertiary, #f3f4f6) 50%,
-      var(--bg-secondary, #f9fafb) 75%
+      var(--bg-secondary) 25%,
+      var(--bg-tertiary) 50%,
+      var(--bg-secondary) 75%
     );
     background-size: 200% 100%;
-    animation: skeleton-loading 1.5s ease-in-out infinite;
+    animation: shimmer 1.5s infinite;
   }
 
-  @keyframes skeleton-loading {
+  @keyframes shimmer {
     0% {
       background-position: 200% 0;
     }
@@ -395,52 +369,30 @@
   }
 
   .error-placeholder {
+    width: 100%;
+    padding: 30px;
     display: flex;
-    flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 40px 20px;
-    color: var(--text-tertiary, #9ca3af);
-    text-align: center;
-  }
-
-  .error-placeholder p {
-    margin-top: 8px;
-    font-size: 12px;
-  }
-
-  .media-image {
-    display: block;
-    width: 100%;
-    height: auto;
-    opacity: 0;
-    transition: opacity 0.3s ease;
-  }
-
-  .media-image.loaded {
-    opacity: 1;
+    font-size: 24px;
   }
 
   .loading-overlay {
     position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
+    inset: 0;
     background: rgba(0, 0, 0, 0.5);
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 10;
   }
 
   .spinner {
-    width: 40px;
-    height: 40px;
-    border: 3px solid rgba(255, 255, 255, 0.3);
+    width: 24px;
+    height: 24px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
     border-top-color: white;
     border-radius: 50%;
-    animation: spin 0.8s linear infinite;
+    animation: spin 0.6s linear infinite;
   }
 
   @keyframes spin {
@@ -449,95 +401,78 @@
     }
   }
 
-  .overlay {
+  /* Hover overlay */
+  .hover-overlay {
     position: absolute;
     bottom: 0;
     left: 0;
     right: 0;
-    background: linear-gradient(to top, rgba(0, 0, 0, 0.8), transparent);
-    padding: 16px;
-    opacity: 0;
-    transition: opacity 0.2s ease;
+    background: linear-gradient(
+      to top,
+      rgba(0, 0, 0, 0.8) 0%,
+      transparent 100%
+    );
+    padding: 24px 8px 8px;
     display: flex;
-    justify-content: space-between;
     align-items: flex-end;
+    justify-content: space-between;
+    opacity: 0;
+    transition: opacity 0.15s ease;
   }
 
-  .media-item:hover .overlay {
+  .media-item:hover .hover-overlay,
+  .media-item.selected .hover-overlay {
     opacity: 1;
   }
 
-  .overlay-content {
-    color: white;
+  .overlay-info {
     flex: 1;
+    min-width: 0;
   }
 
-  .title {
-    font-size: 14px;
-    font-weight: 600;
-    margin: 0 0 4px 0;
-    line-height: 1.4;
+  .overlay-title {
+    display: block;
+    font-size: 11px;
+    font-weight: 500;
+    color: white;
+    white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    line-clamp: 2;
-    -webkit-box-orient: vertical;
-  }
-
-  .metadata {
-    font-size: 12px;
-    margin: 0 0 8px 0;
-    opacity: 0.9;
-  }
-
-  .badges {
-    display: flex;
-    gap: 8px;
-  }
-
-  .badge {
-    display: inline-block;
-    padding: 4px 8px;
-    background: rgba(59, 130, 246, 0.9);
-    border-radius: 4px;
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
   }
 
   .favorite-btn {
-    background: rgba(255, 255, 255, 0.2);
-    border: 2px solid rgba(255, 255, 255, 0.5);
-    border-radius: 50%;
-    width: 40px;
-    height: 40px;
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    background: rgba(0, 0, 0, 0.4);
+    border: none;
+    border-radius: 4px;
+    padding: 6px;
+    cursor: pointer;
+    color: white;
     display: flex;
     align-items: center;
     justify-content: center;
-    cursor: pointer;
-    color: white;
     transition: all 0.2s ease;
-    flex-shrink: 0;
-    margin-left: 12px;
+    opacity: 0;
+    z-index: 10;
+  }
+
+  .media-item:hover .favorite-btn,
+  .favorite-btn.visible {
+    opacity: 1;
   }
 
   .favorite-btn:hover {
     background: rgba(255, 255, 255, 0.3);
-    border-color: white;
     transform: scale(1.1);
   }
 
-  .favorite-btn:active {
-    transform: scale(0.95);
+  .favorite-btn.is-favorite {
+    color: #ff6b6b;
   }
 
-  .favorite-btn svg {
-    fill: none;
-  }
-
-  .favorite-btn:hover svg {
-    fill: rgba(239, 68, 68, 0.8);
+  .favorite-btn.is-favorite svg {
+    fill: currentColor;
   }
 </style>

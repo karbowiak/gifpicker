@@ -1,15 +1,16 @@
-pub mod models;
-pub mod db;
-pub mod services;
 pub mod commands;
+pub mod config;
+pub mod db;
+pub mod models;
+pub mod services;
 
 use commands::AppState;
 use db::Database;
 use services::Downloader;
 use std::sync::Arc;
-use tauri::{Manager, Emitter};
 use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use tauri::tray::{TrayIconBuilder, TrayIconEvent};
+use tauri::{Emitter, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use tokio::sync::Mutex;
 
@@ -32,23 +33,27 @@ pub fn run() {
             }
 
             // Get app data directory
-            let app_dir = app.path().app_data_dir()
+            let app_dir = app
+                .path()
+                .app_data_dir()
                 .expect("Failed to get app data directory");
 
             // Initialize database
             let db_path = app_dir.join("data").join("gifpicker.db");
             let db = tauri::async_runtime::block_on(async {
-                let database = Database::new(db_path).await
+                let database = Database::new(db_path)
+                    .await
                     .expect("Failed to initialize database");
-                database.run_migrations().await
+                database
+                    .run_migrations()
+                    .await
                     .expect("Failed to run migrations");
                 database
             });
 
             // Initialize downloader
             let media_dir = app_dir.join("media");
-            let downloader = Downloader::new(media_dir)
-                .expect("Failed to initialize downloader");
+            let downloader = Downloader::new(media_dir).expect("Failed to initialize downloader");
 
             // Create app state
             let state = Arc::new(Mutex::new(AppState {
@@ -131,7 +136,8 @@ pub fn run() {
                                         // Tray event handlers run on main thread, safe to call directly
                                         unsafe {
                                             let app = class!(NSApplication);
-                                            let shared: *mut AnyObject = msg_send![app, sharedApplication];
+                                            let shared: *mut AnyObject =
+                                                msg_send![app, sharedApplication];
                                             let _: () = msg_send![shared, deactivate];
                                         }
                                     }
@@ -164,35 +170,39 @@ pub fn run() {
 
                         // Register the hotkey
                         if let Ok(shortcut) = hotkey.parse::<Shortcut>() {
-                            let _ = app_handle.global_shortcut().on_shortcut(shortcut, move |app, _shortcut, event| {
-                                // Only respond to key press, not release
-                                if event.state == ShortcutState::Pressed {
-                                    if let Some(window) = app.get_webview_window("main") {
-                                        if window.is_visible().unwrap_or(false) {
-                                            // Hide and deactivate
-                                            let _ = window.hide();
-                                            #[cfg(target_os = "macos")]
-                                            {
-                                                use objc2::runtime::AnyObject;
-                                                use objc2::{class, msg_send};
+                            let _ = app_handle.global_shortcut().on_shortcut(
+                                shortcut,
+                                move |app, _shortcut, event| {
+                                    // Only respond to key press, not release
+                                    if event.state == ShortcutState::Pressed {
+                                        if let Some(window) = app.get_webview_window("main") {
+                                            if window.is_visible().unwrap_or(false) {
+                                                // Hide and deactivate
+                                                let _ = window.hide();
+                                                #[cfg(target_os = "macos")]
+                                                {
+                                                    use objc2::runtime::AnyObject;
+                                                    use objc2::{class, msg_send};
 
-                                                // Hotkey handlers run on main thread, safe to call directly
-                                                unsafe {
-                                                    let app = class!(NSApplication);
-                                                    let shared: *mut AnyObject = msg_send![app, sharedApplication];
-                                                    let _: () = msg_send![shared, deactivate];
+                                                    // Hotkey handlers run on main thread, safe to call directly
+                                                    unsafe {
+                                                        let app = class!(NSApplication);
+                                                        let shared: *mut AnyObject =
+                                                            msg_send![app, sharedApplication];
+                                                        let _: () = msg_send![shared, deactivate];
+                                                    }
                                                 }
+                                            } else {
+                                                let _ = window.show();
+                                                let _ = window.set_focus();
+                                                let _ = window.center();
+                                                let _ = window.emit("clear-search", ());
+                                                let _ = window.emit("focus-search", ());
                                             }
-                                        } else {
-                                            let _ = window.show();
-                                            let _ = window.set_focus();
-                                            let _ = window.center();
-                                            let _ = window.emit("clear-search", ());
-                                            let _ = window.emit("focus-search", ());
                                         }
                                     }
-                                }
-                            });
+                                },
+                            );
                         }
                     }
                 }
@@ -232,17 +242,20 @@ pub fn run() {
             commands::get_all_favorites,
             commands::get_favorite_by_id,
             commands::add_favorite,
-            commands::add_giphy_favorite,
+            commands::add_klipy_favorite,
             commands::update_favorite,
             commands::delete_favorite,
             commands::increment_use_count,
             commands::import_local_file,
             // Search commands
             commands::search_local,
-            commands::search_giphy,
+            commands::search_klipy,
             commands::search_combined,
-            commands::get_giphy_trending,
-            commands::download_giphy_gif,
+            commands::get_klipy_trending,
+            commands::get_klipy_categories,
+            commands::get_autocomplete,
+            commands::get_search_suggestions,
+            commands::download_klipy_gif,
             commands::download_gif_temp,
             // Settings commands
             commands::get_settings,
@@ -255,6 +268,8 @@ pub fn run() {
             commands::get_clipboard_text,
             // File serving commands
             commands::read_file_as_data_url,
+            // System commands
+            commands::system::open_url,
             // Window commands
             commands::close_window,
             commands::show_window,

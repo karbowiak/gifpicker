@@ -12,11 +12,14 @@ pub struct AppState {
 }
 
 #[tauri::command]
-pub async fn get_all_favorites(state: tauri::State<'_, Arc<Mutex<AppState>>>) -> Result<Vec<Favorite>, String> {
+pub async fn get_all_favorites(
+    state: tauri::State<'_, Arc<Mutex<AppState>>>,
+) -> Result<Vec<Favorite>, String> {
     let state = state.lock().await;
     let favorites_db = FavoritesDb::new(state.db.pool());
 
-    favorites_db.get_all()
+    favorites_db
+        .get_all()
         .await
         .map_err(|e| format!("Failed to get favorites: {}", e))
 }
@@ -29,7 +32,8 @@ pub async fn get_favorite_by_id(
     let state = state.lock().await;
     let favorites_db = FavoritesDb::new(state.db.pool());
 
-    favorites_db.get_by_id(id)
+    favorites_db
+        .get_by_id(id)
         .await
         .map_err(|e| format!("Failed to get favorite: {}", e))
 }
@@ -42,7 +46,8 @@ pub async fn add_favorite(
     let state = state.lock().await;
     let favorites_db = FavoritesDb::new(state.db.pool());
 
-    favorites_db.create(&favorite)
+    favorites_db
+        .create(&favorite)
         .await
         .map_err(|e| format!("Failed to add favorite: {}", e))
 }
@@ -55,7 +60,8 @@ pub async fn update_favorite(
     let state = state.lock().await;
     let favorites_db = FavoritesDb::new(state.db.pool());
 
-    favorites_db.update(&favorite)
+    favorites_db
+        .update(&favorite)
         .await
         .map_err(|e| format!("Failed to update favorite: {}", e))
 }
@@ -90,7 +96,8 @@ pub async fn delete_favorite(
         }
     }
 
-    favorites_db.delete(id)
+    favorites_db
+        .delete(id)
         .await
         .map_err(|e| format!("Failed to delete favorite: {}", e))
 }
@@ -103,7 +110,8 @@ pub async fn increment_use_count(
     let state = state.lock().await;
     let favorites_db = FavoritesDb::new(state.db.pool());
 
-    favorites_db.increment_use_count(id)
+    favorites_db
+        .increment_use_count(id)
         .await
         .map_err(|e| format!("Failed to increment use count: {}", e))
 }
@@ -117,7 +125,9 @@ pub async fn import_local_file(
     let source_path = std::path::PathBuf::from(&file_path);
 
     // Import the file
-    let dest_path = state.downloader.import_local_file(&source_path)
+    let dest_path = state
+        .downloader
+        .import_local_file(&source_path)
         .await
         .map_err(|e| format!("Failed to import file: {}", e))?;
 
@@ -136,10 +146,7 @@ pub async fn import_local_file(
     };
 
     // Get file metadata
-    let filename = dest_path.file_name()
-        .unwrap()
-        .to_string_lossy()
-        .to_string();
+    let filename = dest_path.file_name().unwrap().to_string_lossy().to_string();
 
     let file_size = Downloader::get_file_size(&dest_path)
         .await
@@ -169,7 +176,8 @@ pub async fn import_local_file(
 
     // Save to database
     let favorites_db = FavoritesDb::new(state.db.pool());
-    let id = favorites_db.create(&favorite)
+    let id = favorites_db
+        .create(&favorite)
         .await
         .map_err(|e| format!("Failed to save favorite: {}", e))?;
 
@@ -179,7 +187,7 @@ pub async fn import_local_file(
 }
 
 #[tauri::command]
-pub async fn add_giphy_favorite(
+pub async fn add_klipy_favorite(
     gif_url: String,
     mp4_url: Option<String>,
     source_id: String,
@@ -192,8 +200,9 @@ pub async fn add_giphy_favorite(
     let state = state.lock().await;
 
     // Download both GIF (for clipboard) and MP4 (for display)
-    let (gif_path, mp4_path) = state.downloader
-        .download_from_giphy(&gif_url, mp4_url.as_deref(), &source_id)
+    let (gif_path, mp4_path) = state
+        .downloader
+        .download_from_klipy(&gif_url, mp4_url.as_deref(), &source_id)
         .await
         .map_err(|e| format!("Failed to download media: {}", e))?;
 
@@ -211,14 +220,15 @@ pub async fn add_giphy_favorite(
     )
     .with_gif_url(gif_url.clone()) // Keep URL as backup
     .with_dimensions(width, height)
-    .with_source(Source::Giphy, Some(source_id), Some(source_url));
+    .with_source(Source::Klipy, Some(source_id), Some(source_url));
 
     favorite.mp4_filepath = mp4_path.map(|p| p.to_string_lossy().to_string()); // MP4 for display
     favorite.file_size = file_size;
 
     // Save to database
     let favorites_db = FavoritesDb::new(state.db.pool());
-    let id = favorites_db.create(&favorite)
+    let id = favorites_db
+        .create(&favorite)
         .await
         .map_err(|e| format!("Failed to save favorite: {}", e))?;
 

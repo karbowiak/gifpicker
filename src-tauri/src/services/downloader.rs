@@ -20,16 +20,20 @@ impl Downloader {
 
     /// Ensure media directory structure exists
     pub async fn ensure_directories(&self) -> Result<()> {
-        fs::create_dir_all(&self.media_dir).await
+        fs::create_dir_all(&self.media_dir)
+            .await
             .context("Failed to create media directory")?;
 
-        fs::create_dir_all(self.media_dir.join("gifs")).await
+        fs::create_dir_all(self.media_dir.join("gifs"))
+            .await
             .context("Failed to create gifs directory")?;
 
-        fs::create_dir_all(self.media_dir.join("images")).await
+        fs::create_dir_all(self.media_dir.join("images"))
+            .await
             .context("Failed to create images directory")?;
 
-        fs::create_dir_all(self.media_dir.join("videos")).await
+        fs::create_dir_all(self.media_dir.join("videos"))
+            .await
             .context("Failed to create videos directory")?;
 
         Ok(())
@@ -56,7 +60,8 @@ impl Downloader {
         }
 
         // Download the file
-        let response = self.client
+        let response = self
+            .client
             .get(url)
             .send()
             .await
@@ -66,38 +71,41 @@ impl Downloader {
             anyhow::bail!("Failed to download file: HTTP {}", response.status());
         }
 
-        let bytes = response.bytes().await
+        let bytes = response
+            .bytes()
+            .await
             .context("Failed to read response body")?;
 
         // Write to file
-        let mut file = fs::File::create(&file_path).await
+        let mut file = fs::File::create(&file_path)
+            .await
             .context("Failed to create file")?;
 
-        file.write_all(&bytes).await
+        file.write_all(&bytes)
+            .await
             .context("Failed to write file")?;
 
-        file.flush().await
-            .context("Failed to flush file")?;
+        file.flush().await.context("Failed to flush file")?;
 
         Ok(file_path)
     }
 
-    /// Download from Giphy with a generated filename based on the URL hash
+    /// Download from Klipy with a generated filename based on the slug
     /// Returns tuple of (gif_path, mp4_path_option)
-    pub async fn download_from_giphy(
+    pub async fn download_from_klipy(
         &self,
         gif_url: &str,
         mp4_url: Option<&str>,
-        giphy_id: &str,
+        klipy_slug: &str,
     ) -> Result<(PathBuf, Option<PathBuf>)> {
         // Download GIF (original for clipboard/download)
         let gif_extension = gif_url.split('.').last().unwrap_or("gif");
-        let gif_filename = format!("giphy_{}.{}", giphy_id, gif_extension);
+        let gif_filename = format!("klipy_{}.{}", klipy_slug, gif_extension);
         let gif_path = self.download(gif_url, &gif_filename, "gif").await?;
 
         // Download MP4 if available (for fast display)
         let mp4_path = if let Some(mp4_url) = mp4_url {
-            let mp4_filename = format!("giphy_{}.mp4", giphy_id);
+            let mp4_filename = format!("klipy_{}.mp4", klipy_slug);
             match self.download(mp4_url, &mp4_filename, "videos").await {
                 Ok(path) => Some(path),
                 Err(e) => {
@@ -117,7 +125,8 @@ impl Downloader {
     pub async fn download_temp(&self, url: &str, filename: &str) -> Result<PathBuf> {
         // Use system temp directory
         let temp_dir = std::env::temp_dir().join("gifpicker_temp");
-        fs::create_dir_all(&temp_dir).await
+        fs::create_dir_all(&temp_dir)
+            .await
             .context("Failed to create temp directory")?;
 
         let file_path = temp_dir.join(filename);
@@ -128,7 +137,8 @@ impl Downloader {
         }
 
         // Download the file
-        let response = self.client
+        let response = self
+            .client
             .get(url)
             .send()
             .await
@@ -138,18 +148,21 @@ impl Downloader {
             anyhow::bail!("Failed to download file: HTTP {}", response.status());
         }
 
-        let bytes = response.bytes().await
+        let bytes = response
+            .bytes()
+            .await
             .context("Failed to read response body")?;
 
         // Write to file
-        let mut file = fs::File::create(&file_path).await
+        let mut file = fs::File::create(&file_path)
+            .await
             .context("Failed to create file")?;
 
-        file.write_all(&bytes).await
+        file.write_all(&bytes)
+            .await
             .context("Failed to write file")?;
 
-        file.flush().await
-            .context("Failed to flush file")?;
+        file.flush().await.context("Failed to flush file")?;
 
         Ok(file_path)
     }
@@ -188,7 +201,8 @@ impl Downloader {
         let dest_path = self.media_dir.join(subdir).join(&filename);
 
         // Copy the file
-        fs::copy(source_path, &dest_path).await
+        fs::copy(source_path, &dest_path)
+            .await
             .context("Failed to copy file")?;
 
         Ok(dest_path)
@@ -204,14 +218,16 @@ impl Downloader {
 
     /// Get the size of a file
     pub async fn get_file_size(path: &Path) -> Result<u64> {
-        let metadata = fs::metadata(path).await
+        let metadata = fs::metadata(path)
+            .await
             .context("Failed to read file metadata")?;
         Ok(metadata.len())
     }
 
     /// Delete a file
     pub async fn delete_file(path: &Path) -> Result<()> {
-        fs::remove_file(path).await
+        fs::remove_file(path)
+            .await
             .context("Failed to delete file")?;
         Ok(())
     }
@@ -263,7 +279,9 @@ mod tests {
 
         // Create a test file
         let source_file = temp_dir.path().join("test.gif");
-        tokio::fs::write(&source_file, b"test content").await.unwrap();
+        tokio::fs::write(&source_file, b"test content")
+            .await
+            .unwrap();
 
         let result = downloader.import_local_file(&source_file).await;
         assert!(result.is_ok());

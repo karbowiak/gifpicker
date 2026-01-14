@@ -1,177 +1,133 @@
 <script lang="ts">
-  import { showSettings } from '$lib/stores/ui';
-  import { settings } from '$lib/stores/settings';
-  import { showToast } from '$lib/stores/ui';
-  import { invoke } from '@tauri-apps/api/core';
-  import type { ClipboardMode } from '$lib/types';
+  import { showSettings } from "$lib/stores/ui";
+  import { settings } from "$lib/stores/settings";
+  import { showToast } from "$lib/stores/ui";
+  import { invoke } from "@tauri-apps/api/core";
+  import type { ClipboardMode } from "$lib/types";
 
-  let giphyApiKey = '';
   let closeAfterSelection = true;
-  let clipboardMode: ClipboardMode = 'file';
-  let hotkey = '';
+  let clipboardMode: ClipboardMode = "file";
+  let hotkey = "";
+  let showAds = true;
   let currentSettings: any = null;
   let isSaving = false;
 
-  // Load current settings
-  settings.subscribe($settings => {
+  settings.subscribe(($settings) => {
     if ($settings) {
       currentSettings = $settings;
-      giphyApiKey = $settings.giphy_api_key || '';
       closeAfterSelection = $settings.close_after_selection ?? true;
-      clipboardMode = $settings.clipboard_mode || 'file';
-      hotkey = $settings.hotkey || 'Cmd+G';
+      clipboardMode = $settings.clipboard_mode || "file";
+      hotkey = $settings.hotkey || "Cmd+G";
+      showAds = $settings.show_ads ?? true;
     }
   });
 
   function closeModal() {
-    // Don't allow closing if API key is not set
-    if (!currentSettings?.giphy_api_key && !giphyApiKey.trim()) {
-      showToast('Please add your Giphy API key to continue', 'error');
-      return;
-    }
     showSettings.set(false);
   }
 
   async function saveSettings() {
     isSaving = true;
 
-    // Validate API key
-    if (!giphyApiKey.trim()) {
-      showToast('Giphy API key is required', 'error');
-      isSaving = false;
-      return;
-    }
-
     try {
       const newSettings = {
         ...currentSettings,
-        giphy_api_key: giphyApiKey.trim(),
         close_after_selection: closeAfterSelection,
         clipboard_mode: clipboardMode,
-        hotkey: hotkey.trim()
+        hotkey: hotkey.trim(),
+        show_ads: showAds,
       };
 
       await settings.save(newSettings);
 
-      // Re-register the hotkey if it changed
       try {
-        await invoke('register_hotkey', { hotkey: hotkey.trim() });
+        await invoke("register_hotkey", { hotkey: hotkey.trim() });
       } catch (error) {
-        console.error('Failed to register hotkey:', error);
-        showToast('Settings saved but hotkey registration failed', 'error');
+        console.error("Failed to register hotkey:", error);
+        showToast("Settings saved but hotkey registration failed", "error");
         isSaving = false;
         return;
       }
 
-      showToast('Settings saved successfully!', 'success');
+      showToast("Settings saved!", "success");
       closeModal();
     } catch (error) {
-      console.error('Failed to save settings:', error);
-      showToast('Failed to save settings', 'error');
+      console.error("Failed to save settings:", error);
+      showToast("Failed to save settings", "error");
     } finally {
       isSaving = false;
     }
   }
 
   function handleKeyDown(event: KeyboardEvent) {
-    if (event.key === 'Escape') {
-      closeModal();
-    }
+    if (event.key === "Escape") closeModal();
   }
 
   function handleBackdropClick(event: MouseEvent) {
-    if (event.target === event.currentTarget) {
-      closeModal();
-    }
+    if (event.target === event.currentTarget) closeModal();
   }
 </script>
 
 <svelte:window on:keydown={handleKeyDown} />
 
-<div class="settings-overlay" on:click={handleBackdropClick} role="presentation">
+<div
+  class="settings-overlay"
+  on:click={handleBackdropClick}
+  role="presentation"
+>
   <div class="settings-modal">
     <div class="settings-header">
       <h2>Settings</h2>
-      <button class="close-button" on:click={closeModal} aria-label="Close settings">
-        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M15 5L5 15M5 5l10 10" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </button>
+      <button class="close-btn" on:click={closeModal} aria-label="Close"
+        >×</button
+      >
     </div>
 
     <div class="settings-content">
       <div class="setting-group">
-        <label for="giphy-api-key">
-          <span class="setting-label">Giphy API Key <span class="required">*</span></span>
-          <span class="setting-description">
-            Required to search GIFs.
-            <a href="https://developers.giphy.com" target="_blank" rel="noopener noreferrer">
-              Get your free API key from Giphy Developers
-            </a>
-            - Login, create an app, and copy the API key.
-          </span>
-        </label>
-        <input
-          id="giphy-api-key"
-          type="text"
-          class="setting-input"
-          placeholder="Enter your Giphy API key..."
-          bind:value={giphyApiKey}
-          required
-        />
-      </div>
-
-      <div class="setting-group">
         <label class="checkbox-label">
-          <input
-            type="checkbox"
-            bind:checked={closeAfterSelection}
-          />
-          <span class="setting-label">Close window after copying</span>
+          <input type="checkbox" bind:checked={closeAfterSelection} />
+          <span>Close window after copying</span>
         </label>
-        <span class="setting-description">Automatically close the app after selecting a GIF</span>
       </div>
 
       <div class="setting-group">
-        <label for="clipboard-mode">
-          <span class="setting-label">Clipboard Mode</span>
-          <span class="setting-description">
-            Choose what to copy: the GIF file itself or just the URL
-          </span>
-        </label>
-        <select
-          id="clipboard-mode"
-          class="setting-input"
-          bind:value={clipboardMode}
-        >
-          <option value="file">Copy GIF File (works in Discord, Slack, etc.)</option>
-          <option value="url">Copy GIF URL (link only)</option>
+        <label for="clipboard-mode">Clipboard Mode</label>
+        <select id="clipboard-mode" bind:value={clipboardMode}>
+          <option value="file">Copy GIF File</option>
+          <option value="url">Copy URL only</option>
         </select>
       </div>
 
       <div class="setting-group">
-        <label for="hotkey">
-          <span class="setting-label">Global Hotkey</span>
-          <span class="setting-description">
-            Keyboard shortcut to show/hide the GIF Picker (e.g., Cmd+G, Ctrl+Shift+G)
-          </span>
-        </label>
+        <label for="hotkey">Global Hotkey</label>
         <input
           id="hotkey"
           type="text"
-          class="setting-input"
-          placeholder="e.g., Cmd+G or Ctrl+Shift+G"
+          placeholder="e.g., Cmd+G"
           bind:value={hotkey}
         />
+      </div>
+
+      <div class="setting-group support">
+        <label class="checkbox-label">
+          <input type="checkbox" bind:checked={showAds} />
+          <span>Support development (show ads)</span>
+        </label>
+        <span class="setting-hint">Subtle inline ads from Klipy</span>
+      </div>
+
+      <div class="attribution">
+        GIFs powered by <a href="https://klipy.com" target="_blank">Klipy</a>
       </div>
     </div>
 
     <div class="settings-footer">
-      <button class="button button-secondary" on:click={closeModal} disabled={isSaving}>
-        Cancel
-      </button>
-      <button class="button button-primary" on:click={saveSettings} disabled={isSaving}>
-        {isSaving ? 'Saving...' : 'Save Settings'}
+      <button class="btn secondary" on:click={closeModal} disabled={isSaving}
+        >Cancel</button
+      >
+      <button class="btn primary" on:click={saveSettings} disabled={isSaving}>
+        {isSaving ? "Saving..." : "Save"}
       </button>
     </div>
   </div>
@@ -180,11 +136,8 @@
 <style>
   .settings-overlay {
     position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.5);
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -193,177 +146,162 @@
   }
 
   .settings-modal {
-    background: var(--bg-primary, #ffffff);
-    border-radius: 12px;
+    background: var(--bg-secondary);
+    border-radius: 8px;
     width: 90%;
-    max-width: 500px;
+    max-width: 400px;
     max-height: 90vh;
     overflow: hidden;
     display: flex;
     flex-direction: column;
-    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
   }
 
   .settings-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 20px 24px;
-    border-bottom: 1px solid var(--border-color, #e5e7eb);
+    padding: 16px;
+    border-bottom: 1px solid var(--border-color);
   }
 
   .settings-header h2 {
     margin: 0;
-    font-size: 20px;
+    font-size: 16px;
     font-weight: 600;
-    color: var(--text-primary, #111827);
   }
 
-  .close-button {
+  .close-btn {
     background: none;
     border: none;
-    color: var(--text-secondary, #6b7280);
+    font-size: 24px;
+    line-height: 1;
+    color: var(--text-tertiary);
     cursor: pointer;
-    padding: 4px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 4px;
-    transition: all 0.2s ease;
+    padding: 0;
   }
 
-  .close-button:hover {
-    background: var(--bg-secondary, #f9fafb);
-    color: var(--text-primary, #111827);
+  .close-btn:hover {
+    color: var(--text-primary);
   }
 
   .settings-content {
     flex: 1;
     overflow-y: auto;
-    padding: 24px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
   }
 
   .setting-group {
-    margin-bottom: 24px;
-  }
-
-  .setting-group:last-child {
-    margin-bottom: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
   }
 
   .setting-group label {
-    display: block;
-    margin-bottom: 8px;
-  }
-
-  .setting-label {
-    display: block;
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 500;
-    color: var(--text-primary, #111827);
-    margin-bottom: 4px;
+    color: var(--text-secondary);
   }
 
-  .required {
-    color: #ef4444;
+  .setting-group select,
+  .setting-group input[type="text"] {
+    padding: 8px 10px;
+    font-size: 13px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
   }
 
-  .setting-description {
-    display: block;
-    font-size: 12px;
-    color: var(--text-secondary, #6b7280);
-    line-height: 1.5;
-  }
-
-  .setting-description a {
-    color: var(--accent-color, #3b82f6);
-    text-decoration: none;
-  }
-
-  .setting-description a:hover {
-    text-decoration: underline;
-  }
-
-  .setting-input {
-    width: 100%;
-    padding: 10px 12px;
-    font-size: 14px;
-    border: 1px solid var(--border-color, #e5e7eb);
-    border-radius: 8px;
-    background: var(--bg-secondary, #f9fafb);
-    color: var(--text-primary, #111827);
-    transition: all 0.2s ease;
-  }
-
-  .setting-input:focus {
+  .setting-group select:focus,
+  .setting-group input[type="text"]:focus {
     outline: none;
-    border-color: var(--accent-color, #3b82f6);
-    background: var(--bg-primary, #ffffff);
-    box-shadow: 0 0 0 3px var(--accent-color-light, rgba(59, 130, 246, 0.1));
+    border-color: var(--accent-color);
+  }
+
+  .setting-hint {
+    font-size: 11px;
+    color: var(--text-tertiary);
   }
 
   .checkbox-label {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 8px;
+    font-size: 13px;
     cursor: pointer;
   }
 
-  .checkbox-label input[type="checkbox"] {
-    width: 18px;
-    height: 18px;
-    cursor: pointer;
-    accent-color: var(--accent-color, #3b82f6);
+  .checkbox-label input {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--accent-color);
   }
 
-  .checkbox-label .setting-label {
-    margin-bottom: 0;
-    cursor: pointer;
+  .checkbox-label span {
+    color: var(--text-primary);
+  }
+
+  .setting-group.support {
+    background: var(--accent-color-light);
+    padding: 12px;
+    border-radius: 6px;
+  }
+
+  .attribution {
+    text-align: center;
+    font-size: 11px;
+    color: var(--text-tertiary);
+    padding-top: 8px;
+    border-top: 1px solid var(--border-color);
+  }
+
+  .attribution a {
+    color: var(--accent-color);
+    text-decoration: none;
   }
 
   .settings-footer {
     display: flex;
     justify-content: flex-end;
-    gap: 12px;
-    padding: 20px 24px;
-    border-top: 1px solid var(--border-color, #e5e7eb);
+    gap: 8px;
+    padding: 12px 16px;
+    border-top: 1px solid var(--border-color);
   }
 
-  .button {
-    padding: 10px 20px;
-    font-size: 14px;
+  .btn {
+    padding: 8px 16px;
+    font-size: 13px;
     font-weight: 500;
-    border-radius: 8px;
+    border-radius: 4px;
     cursor: pointer;
-    transition: all 0.2s ease;
     border: none;
+    transition: all 0.15s ease;
   }
 
-  .button:disabled {
+  .btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
   }
 
-  .button-secondary {
-    background: var(--bg-secondary, #f9fafb);
-    color: var(--text-primary, #111827);
-    border: 1px solid var(--border-color, #e5e7eb);
+  .btn.secondary {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
   }
 
-  .button-secondary:hover:not(:disabled) {
-    background: var(--bg-tertiary, #f3f4f6);
+  .btn.secondary:hover:not(:disabled) {
+    background: var(--border-color);
   }
 
-  .button-primary {
-    background: var(--accent-color, #3b82f6);
+  .btn.primary {
+    background: var(--accent-color);
     color: white;
   }
 
-  .button-primary:hover:not(:disabled) {
-    background: var(--accent-color-dark, #2563eb);
-  }
-
-  .button:active:not(:disabled) {
-    transform: scale(0.98);
+  .btn.primary:hover:not(:disabled) {
+    filter: brightness(1.1);
   }
 </style>

@@ -1,10 +1,9 @@
-import { writable } from 'svelte/store';
+import { writable, get } from 'svelte/store';
 import { invoke } from '@tauri-apps/api/core';
 import type { Settings } from '$lib/types';
 
 // Default settings
 const defaultSettings: Settings = {
-  giphy_api_key: undefined,
   hotkey: 'Option+Cmd+G',
   window_width: 800,
   window_height: 600,
@@ -12,7 +11,8 @@ const defaultSettings: Settings = {
   close_after_selection: true,
   launch_at_startup: false,
   theme: 'system',
-  clipboard_mode: 'file'
+  clipboard_mode: 'file',
+  show_ads: true
 };
 
 // Settings store
@@ -21,8 +21,8 @@ function createSettingsStore() {
 
   return {
     subscribe,
+    get: () => get({ subscribe }),
 
-    // Load settings from backend
     async load() {
       try {
         const settings = await invoke<Settings>('get_settings');
@@ -35,7 +35,6 @@ function createSettingsStore() {
       }
     },
 
-    // Save all settings
     async save(settings: Settings) {
       try {
         await invoke('save_settings', { settings });
@@ -46,7 +45,6 @@ function createSettingsStore() {
       }
     },
 
-    // Update a single setting
     async updateSetting(key: keyof Settings, value: any) {
       try {
         const valueStr = JSON.stringify(value);
@@ -58,7 +56,6 @@ function createSettingsStore() {
       }
     },
 
-    // Reset to defaults
     reset() {
       set(defaultSettings);
     }

@@ -1,15 +1,16 @@
+pub mod clipboard;
 pub mod favorites;
+pub mod files;
+pub mod hotkey;
 pub mod search;
 pub mod settings;
-pub mod clipboard;
-pub mod files;
+pub mod system;
 pub mod window;
-pub mod hotkey;
 
+pub use clipboard::*;
 pub use favorites::*;
+pub use files::*;
+pub use hotkey::*;
 pub use search::*;
 pub use settings::*;
-pub use clipboard::*;
-pub use files::*;
 pub use window::*;
-pub use hotkey::*;

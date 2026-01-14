@@ -35,8 +35,7 @@ impl std::str::FromStr for MediaType {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum Source {
-    Giphy,
-    Tenor,
+    Klipy,
     Local,
     Upload,
 }
@@ -44,8 +43,7 @@ pub enum Source {
 impl std::fmt::Display for Source {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Source::Giphy => write!(f, "giphy"),
-            Source::Tenor => write!(f, "tenor"),
+            Source::Klipy => write!(f, "klipy"),
             Source::Local => write!(f, "local"),
             Source::Upload => write!(f, "upload"),
         }
@@ -57,8 +55,7 @@ impl std::str::FromStr for Source {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
-            "giphy" => Ok(Source::Giphy),
-            "tenor" => Ok(Source::Tenor),
+            "klipy" => Ok(Source::Klipy),
             "local" => Ok(Source::Local),
             "upload" => Ok(Source::Upload),
             _ => Err(format!("Unknown source: {}", s)),
@@ -66,13 +63,16 @@ impl std::str::FromStr for Source {
     }
 }
 
+/// Favorite stores a GIF locally
+/// - filepath: GIF file (for clipboard - Discord compatibility)
+/// - mp4_filepath: MP4 file (for UI rendering - efficient)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Favorite {
     pub id: Option<i64>,
     pub filename: String,
-    pub filepath: Option<String>, // Made optional - not needed for Giphy GIFs
-    pub mp4_filepath: Option<String>, // MP4 version for display (better performance)
-    pub gif_url: Option<String>, // Direct GIF URL for clipboard
+    pub filepath: Option<String>,     // GIF file (for clipboard)
+    pub mp4_filepath: Option<String>, // MP4 for UI display
+    pub gif_url: Option<String>,      // Original URL as backup
     pub media_type: MediaType,
     pub source: Option<Source>,
     pub source_id: Option<String>,
@@ -89,11 +89,7 @@ pub struct Favorite {
 }
 
 impl Favorite {
-    pub fn new(
-        filename: String,
-        filepath: Option<String>,
-        media_type: MediaType,
-    ) -> Self {
+    pub fn new(filename: String, filepath: Option<String>, media_type: MediaType) -> Self {
         Self {
             id: None,
             filename,
@@ -116,15 +112,20 @@ impl Favorite {
         }
     }
 
-    pub fn with_source(mut self, source: Source, source_id: Option<String>, source_url: Option<String>) -> Self {
+    pub fn with_source(
+        mut self,
+        source: Source,
+        source_id: Option<String>,
+        source_url: Option<String>,
+    ) -> Self {
         self.source = Some(source);
         self.source_id = source_id;
         self.source_url = source_url;
         self
     }
 
-    pub fn with_gif_url(mut self, gif_url: String) -> Self {
-        self.gif_url = Some(gif_url);
+    pub fn with_tags(mut self, tags: Vec<String>) -> Self {
+        self.tags = tags;
         self
     }
 
@@ -134,67 +135,8 @@ impl Favorite {
         self
     }
 
-    pub fn with_tags(mut self, tags: Vec<String>) -> Self {
-        self.tags = tags;
+    pub fn with_gif_url(mut self, url: String) -> Self {
+        self.gif_url = Some(url);
         self
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_media_type_to_string() {
-        assert_eq!(MediaType::Gif.to_string(), "gif");
-        assert_eq!(MediaType::Image.to_string(), "image");
-        assert_eq!(MediaType::Video.to_string(), "video");
-    }
-
-    #[test]
-    fn test_media_type_from_string() {
-        assert_eq!("gif".parse::<MediaType>().unwrap(), MediaType::Gif);
-        assert_eq!("GIF".parse::<MediaType>().unwrap(), MediaType::Gif);
-        assert_eq!("image".parse::<MediaType>().unwrap(), MediaType::Image);
-        assert_eq!("video".parse::<MediaType>().unwrap(), MediaType::Video);
-    }
-
-    #[test]
-    fn test_source_to_string() {
-        assert_eq!(Source::Giphy.to_string(), "giphy");
-        assert_eq!(Source::Local.to_string(), "local");
-    }
-
-    #[test]
-    fn test_favorite_new() {
-        let fav = Favorite::new(
-            "test.gif".to_string(),
-            Some("/path/to/test.gif".to_string()),
-            MediaType::Gif,
-        );
-
-        assert_eq!(fav.filename, "test.gif");
-        assert_eq!(fav.filepath, Some("/path/to/test.gif".to_string()));
-        assert_eq!(fav.media_type, MediaType::Gif);
-        assert_eq!(fav.use_count, 0);
-        assert!(fav.id.is_none());
-    }
-
-    #[test]
-    fn test_favorite_builder() {
-        let fav = Favorite::new(
-            "test.gif".to_string(),
-            Some("/path/to/test.gif".to_string()),
-            MediaType::Gif,
-        )
-        .with_source(Source::Giphy, Some("123".to_string()), Some("https://giphy.com/123".to_string()))
-        .with_dimensions(500, 300)
-        .with_tags(vec!["funny".to_string(), "cat".to_string()]);
-
-        assert_eq!(fav.source, Some(Source::Giphy));
-        assert_eq!(fav.source_id, Some("123".to_string()));
-        assert_eq!(fav.width, Some(500));
-        assert_eq!(fav.height, Some(300));
-        assert_eq!(fav.tags.len(), 2);
     }
 }

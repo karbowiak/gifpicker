@@ -1,15 +1,16 @@
 // TypeScript types matching Rust backend structures
 
 export type MediaType = 'gif' | 'image' | 'video';
-export type Source = 'giphy' | 'tenor' | 'local' | 'upload';
+export type Source = 'klipy' | 'local' | 'upload';
 export type Theme = 'light' | 'dark' | 'system';
 export type ClipboardMode = 'file' | 'url';
+export type ViewMode = 'favorites' | 'trending' | 'categories' | 'category' | 'search';
 
 export interface Favorite {
   id?: number;
   filename: string;
-  filepath?: string;
-  mp4_filepath?: string; // MP4 version for display (better performance)
+  filepath?: string;      // GIF file (for clipboard)
+  mp4_filepath?: string;  // MP4 for UI display
   gif_url?: string;
   media_type: MediaType;
   source?: Source;
@@ -27,7 +28,6 @@ export interface Favorite {
 }
 
 export interface Settings {
-  giphy_api_key?: string;
   hotkey: string;
   window_width: number;
   window_height: number;
@@ -36,55 +36,53 @@ export interface Settings {
   launch_at_startup: boolean;
   theme: Theme;
   clipboard_mode: ClipboardMode;
+  show_ads: boolean;
 }
 
-export interface GiphyGifResult {
+export interface KlipyGifResult {
   id: string;
+  slug: string;
   title: string;
   url: string;
-  gif_url: string; // Original GIF for downloading/clipboard
-  mp4_url?: string; // MP4 for display (better performance)
-  width: string;
-  height: string;
+  gif_url: string;
+  mp4_url?: string;
+  width: number;
+  height: number;
 }
 
-export interface GiphySearchResults {
-  gifs: GiphyGifResult[];
+export interface KlipySearchResults {
+  gifs: KlipyGifResult[];
   total_count: number;
-  offset: number;
+  page: number;
+}
+
+export interface KlipyCategory {
+  name: string;
+  slug: string;
+  gif_url: string;
+  mp4_url?: string;
+  width: number;
+  height: number;
+}
+
+export interface KlipyCategoriesResult {
+  categories: KlipyCategory[];
 }
 
 export interface SearchResult {
   local: Favorite[];
-  giphy?: GiphySearchResults;
+  klipy?: KlipySearchResults;
 }
 
-// UI-specific types
-export interface UIState {
-  selectedIndex: number;
-  isSearchFocused: boolean;
-  showSettings: boolean;
-  showContextMenu: boolean;
-  contextMenuPosition: { x: number; y: number };
-  contextMenuItem?: Favorite | GiphyGifResult;
+// Type guards
+export function isFavorite(item: Favorite | KlipyGifResult): item is Favorite {
+  return 'filepath' in item || 'use_count' in item;
 }
 
-export interface LoadingState {
-  isLoading: boolean;
-  message?: string;
+export function isKlipyResult(item: Favorite | KlipyGifResult): item is KlipyGifResult {
+  return 'slug' in item && !('use_count' in item);
 }
 
-export interface ErrorState {
-  hasError: boolean;
-  message?: string;
-}
-
-// Type guard to check if item is a Favorite
-export function isFavorite(item: Favorite | GiphyGifResult): item is Favorite {
-  return 'filepath' in item;
-}
-
-// Type guard to check if item is a Giphy result
-export function isGiphyResult(item: Favorite | GiphyGifResult): item is GiphyGifResult {
-  return 'gif_url' in item;
+export function isKlipyCategory(item: Favorite | KlipyGifResult | KlipyCategory): item is KlipyCategory {
+  return 'slug' in item && 'name' in item && !('title' in item);
 }

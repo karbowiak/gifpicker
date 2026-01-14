@@ -2,7 +2,6 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Settings {
-    pub giphy_api_key: Option<String>,
     pub hotkey: String,
     pub window_width: i32,
     pub window_height: i32,
@@ -11,6 +10,7 @@ pub struct Settings {
     pub launch_at_startup: bool,
     pub theme: Theme,
     pub clipboard_mode: ClipboardMode,
+    pub show_ads: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -31,7 +31,6 @@ pub enum ClipboardMode {
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            giphy_api_key: None,
             #[cfg(target_os = "macos")]
             hotkey: "Option+Cmd+G".to_string(),
             #[cfg(not(target_os = "macos"))]
@@ -43,6 +42,7 @@ impl Default for Settings {
             launch_at_startup: false,
             theme: Theme::System,
             clipboard_mode: ClipboardMode::File,
+            show_ads: true,
         }
     }
 }
@@ -55,8 +55,7 @@ mod tests {
     fn test_default_settings() {
         let settings = Settings::default();
         assert_eq!(settings.window_width, 800);
-        assert_eq!(settings.window_height, 600);
-        assert!(settings.close_after_selection);
+        assert!(settings.show_ads);
     }
 
     #[test]

@@ -1,5 +1,5 @@
 import { writable } from 'svelte/store';
-import type { Favorite, GiphyGifResult } from '$lib/types';
+import type { Favorite, KlipyGifResult } from '$lib/types';
 
 // Selected item index in the grid - with logging
 // Selected index for keyboard navigation
@@ -29,7 +29,7 @@ export const contextMenu = writable<{
   show: boolean;
   x: number;
   y: number;
-  item?: Favorite | GiphyGifResult;
+  item?: Favorite | KlipyGifResult;
 }>({
   show: false,
   x: 0,
@@ -38,7 +38,7 @@ export const contextMenu = writable<{
 });
 
 // Show context menu
-export function openContextMenu(x: number, y: number, item: Favorite | GiphyGifResult) {
+export function openContextMenu(x: number, y: number, item: Favorite | KlipyGifResult) {
   contextMenu.set({ show: true, x, y, item });
 }
 

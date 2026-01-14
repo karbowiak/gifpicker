@@ -1,7 +1,7 @@
-pub mod giphy;
-pub mod downloader;
 pub mod clipboard;
+pub mod downloader;
+pub mod klipy;
 
-pub use giphy::*;
-pub use downloader::*;
 pub use clipboard::*;
+pub use downloader::*;
+pub use klipy::*;

@@ -1,11 +1,11 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
-  import type { Favorite, GiphyGifResult } from '$lib/types';
-  import MediaItem from './MediaItem.svelte';
-  import { selectedIndex } from '$lib/stores/ui';
+  import { onMount, onDestroy } from "svelte";
+  import type { Favorite, KlipyGifResult } from "$lib/types";
+  import MediaItem from "./MediaItem.svelte";
+  import { selectedIndex } from "$lib/stores/ui";
 
-  export let items: (Favorite | GiphyGifResult)[] = [];
-  export let onItemClick: (item: Favorite | GiphyGifResult) => void = () => {};
+  export let items: (Favorite | KlipyGifResult)[] = [];
+  export let onItemClick: (item: Favorite | KlipyGifResult) => void = () => {};
   export let onScrollNearEnd: (() => void) | undefined = undefined;
 
   let containerElement: HTMLDivElement;
@@ -15,96 +15,101 @@
   let scrollObserver: IntersectionObserver | undefined;
 
   // Subscribe to selected index
-  selectedIndex.subscribe(value => {
+  selectedIndex.subscribe((value) => {
     currentSelectedIndex = value;
   });
 
-  // Scroll to selected item ONLY when selection actually changes (not when items are added)
-  $: if (currentSelectedIndex !== previousSelectedIndex && currentSelectedIndex >= 0 && currentSelectedIndex < items.length) {
+  // Scroll to selected item ONLY when selection actually changes
+  $: if (
+    currentSelectedIndex !== previousSelectedIndex &&
+    currentSelectedIndex >= 0 &&
+    currentSelectedIndex < items.length
+  ) {
     scrollToSelectedItem();
     previousSelectedIndex = currentSelectedIndex;
   }
 
   function scrollToSelectedItem() {
     if (!containerElement) return;
-
-    const selectedEl = containerElement.querySelector('.media-item.selected');
+    const selectedEl = containerElement.querySelector(".media-item.selected");
     if (selectedEl) {
-      selectedEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      selectedEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
     }
   }
 
-  // Set up infinite scroll when component mounts or callback changes
+  // Set up infinite scroll
   $: if (onScrollNearEnd && sentinelElement) {
     setupInfiniteScroll();
   }
 
-  function setupInfiniteScroll() {
-    // Clean up existing observer
-    if (scrollObserver) {
-      scrollObserver.disconnect();
-    }
+  // Re-check infinite scroll when items change (in case we didn't fill the screen)
+  $: if (items && scrollObserver && sentinelElement) {
+    // Small delay to allow DOM to update
+    setTimeout(() => {
+      if (scrollObserver && sentinelElement) {
+        scrollObserver.unobserve(sentinelElement);
+        scrollObserver.observe(sentinelElement);
+      }
+    }, 100);
+  }
 
+  function setupInfiniteScroll() {
+    if (scrollObserver) scrollObserver.disconnect();
     if (!sentinelElement || !onScrollNearEnd) return;
 
     scrollObserver = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
-          if (entry.isIntersecting && onScrollNearEnd) {
-            onScrollNearEnd();
+          if (entry.isIntersecting) {
+            if (onScrollNearEnd) {
+              onScrollNearEnd();
+            }
           }
         });
       },
-      {
-        root: containerElement,
-        rootMargin: '400px', // Trigger 400px before reaching the bottom
-        threshold: 0.01
-      }
+      { root: containerElement, rootMargin: "400px", threshold: 0.01 },
     );
-
     scrollObserver.observe(sentinelElement);
   }
 
   onMount(() => {
-    // Don't reset selection - let it persist across window open/close
-    // Only scroll to the current selection if it exists
     if (currentSelectedIndex >= 0 && currentSelectedIndex < items.length) {
       scrollToSelectedItem();
     }
   });
 
   onDestroy(() => {
-    if (scrollObserver) {
-      scrollObserver.disconnect();
-    }
+    if (scrollObserver) scrollObserver.disconnect();
   });
 </script>
 
-<div
-  class="masonry-layout"
-  bind:this={containerElement}
->
+<div class="masonry-layout" bind:this={containerElement}>
   {#if items.length === 0}
     <div class="empty-state">
-      <svg width="64" height="64" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z" fill="currentColor" opacity="0.3"/>
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none">
+        <path
+          d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"
+          fill="currentColor"
+          opacity="0.4"
+        />
       </svg>
-      <h3>No GIFs yet</h3>
       <p>Search for GIFs to get started</p>
     </div>
   {:else}
     <div class="masonry-grid">
-      {#each items as item, index (item.id || index)}
+      {#each items.filter((i) => !!i) as item, index (item.id || index)}
         <MediaItem
           {item}
+          {index}
           selected={currentSelectedIndex === index}
           onClick={onItemClick}
+          onHover={() => selectedIndex.set(index)}
+          onLeave={() => selectedIndex.set(-1)}
         />
       {/each}
     </div>
 
     {#if onScrollNearEnd}
-      <!-- Sentinel element for infinite scroll detection -->
       <div class="scroll-sentinel" bind:this={sentinelElement}></div>
     {/if}
   {/if}
@@ -115,35 +120,34 @@
     flex: 1;
     overflow-y: auto;
     overflow-x: hidden;
-    padding: 16px;
+    padding: 8px;
+    background: var(--bg-primary);
   }
 
+  /* CSS Grid masonry - items span rows based on aspect ratio */
   .masonry-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-    gap: 8px;
-    align-items: start;
+    grid-template-columns: repeat(4, 1fr);
+    grid-auto-rows: 10px;
+    gap: 4px;
   }
 
-  /* Responsive column counts */
-  @media (max-width: 1200px) {
+  /* Responsive columns */
+  @media (max-width: 900px) {
     .masonry-grid {
-      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-      gap: 8px;
+      grid-template-columns: repeat(3, 1fr);
     }
   }
 
-  @media (max-width: 800px) {
+  @media (max-width: 600px) {
     .masonry-grid {
-      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-      gap: 6px;
+      grid-template-columns: repeat(2, 1fr);
     }
   }
 
-  @media (max-width: 500px) {
+  @media (max-width: 400px) {
     .masonry-grid {
-      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-      gap: 6px;
+      grid-template-columns: 1fr;
     }
   }
 
@@ -152,49 +156,42 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 80px 20px;
+    padding: 60px 20px;
     text-align: center;
-    color: var(--text-tertiary, #9ca3af);
+    color: var(--text-tertiary);
+    opacity: 0.6;
   }
 
   .empty-state svg {
-    margin-bottom: 16px;
-  }
-
-  .empty-state h3 {
-    font-size: 18px;
-    font-weight: 600;
-    margin: 0 0 8px 0;
-    color: var(--text-secondary, #6b7280);
+    margin-bottom: 12px;
   }
 
   .empty-state p {
-    font-size: 14px;
+    font-size: 13px;
     margin: 0;
   }
 
-  /* Custom scrollbar */
+  /* Minimal scrollbar */
   .masonry-layout::-webkit-scrollbar {
-    width: 8px;
+    width: 6px;
   }
 
   .masonry-layout::-webkit-scrollbar-track {
-    background: var(--bg-secondary, #f9fafb);
+    background: transparent;
   }
 
   .masonry-layout::-webkit-scrollbar-thumb {
-    background: var(--border-color, #e5e7eb);
-    border-radius: 4px;
+    background: var(--border-color);
+    border-radius: 3px;
   }
 
   .masonry-layout::-webkit-scrollbar-thumb:hover {
-    background: var(--text-tertiary, #9ca3af);
+    background: var(--text-tertiary);
   }
 
   .scroll-sentinel {
     width: 100%;
-    height: 20px;
-    margin-top: 16px;
+    height: 10px;
     pointer-events: none;
   }
 </style>
