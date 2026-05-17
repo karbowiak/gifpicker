@@ -37,6 +37,29 @@ pub struct KlipyMediaFile {
     pub size: Option<u64>,
 }
 
+/// An inline ad item returned alongside content. The `content` field is a
+/// self-contained HTML document that must be rendered in a WebView/iframe;
+/// it handles its own impression and click tracking. See
+/// https://docs.klipy.com/advertisements/displaying-an-ad.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KlipyAd {
+    pub width: u32,
+    pub height: u32,
+    pub content: String,
+}
+
+/// A single item in `data.data` — either a GIF or an ad. New variants Klipy
+/// may add in the future are swallowed as `Unknown` so we never blow up the
+/// whole search response on an unrecognized `type`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum KlipyItem {
+    Gif(KlipyGif),
+    Ad(KlipyAd),
+    #[serde(other)]
+    Unknown,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KlipySearchResponse {
     pub result: bool,
@@ -45,7 +68,7 @@ pub struct KlipySearchResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KlipySearchData {
-    pub data: Vec<KlipyGif>,
+    pub data: Vec<KlipyItem>,
     pub current_page: Option<u32>,
     pub last_page: Option<u32>,
     pub per_page: Option<u32>,
@@ -77,17 +100,56 @@ pub struct KlipyStringListResponse {
     pub data: Vec<String>,
 }
 
+/// Context passed on every ad-eligible request. None of these fields are
+/// secrets — they're either app-level constants (os/make/app_version) or a
+/// stable per-install UUID generated on first launch. See
+/// https://docs.klipy.com/advertisements/receiving-an-ad for the parameter
+/// reference; the four width/height bounds are *required* for ad delivery.
+#[derive(Debug, Clone)]
+pub struct AdContext {
+    pub customer_id: String,
+    pub min_width: u32,
+    pub max_width: u32,
+    pub min_height: u32,
+    pub max_height: u32,
+    pub os: &'static str,
+    pub make: &'static str,
+    pub app_version: &'static str,
+}
+
+impl AdContext {
+    /// Returns query params, in the exact key shape Klipy expects (`ad-min-width`,
+    /// `customer_id`, …).
+    fn query_params(&self) -> Vec<(&'static str, String)> {
+        vec![
+            ("customer_id", self.customer_id.clone()),
+            ("ad-min-width", self.min_width.to_string()),
+            ("ad-max-width", self.max_width.to_string()),
+            ("ad-min-height", self.min_height.to_string()),
+            ("ad-max-height", self.max_height.to_string()),
+            ("ad-os", self.os.to_string()),
+            ("ad-make", self.make.to_string()),
+            ("ad-app-version", self.app_version.to_string()),
+        ]
+    }
+}
+
 pub struct KlipyClient {
     client: Client,
     api_key: String,
 }
 
 impl KlipyClient {
-    pub fn new(api_key: String) -> Self {
-        Self {
-            client: Client::new(),
-            api_key,
-        }
+    pub fn new(api_key: String, user_agent: &str) -> Self {
+        // A real UA so Klipy's ad-fill targeting has something to work with.
+        // Falls back to a default Client if for some reason builder fails — we'd
+        // rather make requests without a custom UA than panic at startup.
+        let client = Client::builder()
+            .user_agent(user_agent)
+            .build()
+            .unwrap_or_else(|_| Client::new());
+
+        Self { client, api_key }
     }
 
     /// Search for GIFs on Klipy
@@ -96,17 +158,20 @@ impl KlipyClient {
         query: &str,
         per_page: u32,
         page: u32,
+        ad_context: Option<&AdContext>,
     ) -> Result<KlipySearchResponse> {
         let url = format!("{}/{}/gifs/search", KLIPY_API_BASE_URL, self.api_key);
 
-        let response = self
-            .client
-            .get(&url)
-            .query(&[
-                ("q", query),
-                ("per_page", &per_page.to_string()),
-                ("page", &page.to_string()),
-            ])
+        let mut req = self.client.get(&url).query(&[
+            ("q", query),
+            ("per_page", &per_page.to_string()),
+            ("page", &page.to_string()),
+        ]);
+        if let Some(ctx) = ad_context {
+            req = req.query(&ctx.query_params());
+        }
+
+        let response = req
             .send()
             .await
             .context("Failed to send request to Klipy API")?;
@@ -115,25 +180,30 @@ impl KlipyClient {
             anyhow::bail!("Klipy API returned error status: {}", response.status());
         }
 
-        let search_response = response
+        response
             .json::<KlipySearchResponse>()
             .await
-            .context("Failed to parse Klipy API response")?;
-
-        Ok(search_response)
+            .context("Failed to parse Klipy API response")
     }
 
     /// Get trending GIFs
-    pub async fn trending(&self, per_page: u32, page: u32) -> Result<KlipySearchResponse> {
+    pub async fn trending(
+        &self,
+        per_page: u32,
+        page: u32,
+        ad_context: Option<&AdContext>,
+    ) -> Result<KlipySearchResponse> {
         let url = format!("{}/{}/gifs/trending", KLIPY_API_BASE_URL, self.api_key);
 
-        let response = self
+        let mut req = self
             .client
             .get(&url)
-            .query(&[
-                ("per_page", &per_page.to_string()),
-                ("page", &page.to_string()),
-            ])
+            .query(&[("per_page", &per_page.to_string()), ("page", &page.to_string())]);
+        if let Some(ctx) = ad_context {
+            req = req.query(&ctx.query_params());
+        }
+
+        let response = req
             .send()
             .await
             .context("Failed to send request to Klipy API")?;
@@ -142,12 +212,10 @@ impl KlipyClient {
             anyhow::bail!("Klipy API returned error status: {}", response.status());
         }
 
-        let search_response = response
+        response
             .json::<KlipySearchResponse>()
             .await
-            .context("Failed to parse Klipy API response")?;
-
-        Ok(search_response)
+            .context("Failed to parse Klipy API response")
     }
 
     /// Get a GIF by slug
@@ -175,7 +243,10 @@ impl KlipyClient {
             .data
             .data
             .into_iter()
-            .next()
+            .find_map(|item| match item {
+                KlipyItem::Gif(gif) => Some(gif),
+                _ => None,
+            })
             .context("GIF not found")
     }
 
@@ -194,12 +265,10 @@ impl KlipyClient {
             anyhow::bail!("Klipy API returned error status: {}", response.status());
         }
 
-        let categories_response = response
+        response
             .json::<KlipyCategoriesResponse>()
             .await
-            .context("Failed to parse Klipy API categories response")?;
-
-        Ok(categories_response)
+            .context("Failed to parse Klipy API categories response")
     }
 
     /// Get autocomplete suggestions for a query
@@ -263,7 +332,7 @@ mod tests {
 
     #[test]
     fn test_klipy_client_creation() {
-        let client = KlipyClient::new("test_key".to_string());
+        let client = KlipyClient::new("test_key".to_string(), "test-ua/1.0");
         assert_eq!(client.api_key, "test_key");
     }
 
@@ -273,6 +342,7 @@ mod tests {
             "result": true,
             "data": {
                 "data": [{
+                    "type": "gif",
                     "id": 8679151651012575,
                     "slug": "happy-cat-f7u",
                     "title": "Happy Cat",
@@ -284,15 +354,9 @@ mod tests {
                             "webm": {"url": "https://static.klipy.com/test.webm", "width": 480, "height": 270, "size": 12345},
                             "jpg": {"url": "https://static.klipy.com/test.jpg", "width": 480, "height": 270, "size": 1234}
                         },
-                        "md": {
-                            "gif": {"url": "https://static.klipy.com/test_md.gif", "width": 320, "height": 180}
-                        },
-                        "sm": {
-                            "gif": {"url": "https://static.klipy.com/test_sm.gif", "width": 200, "height": 113}
-                        },
-                        "xs": {
-                            "gif": {"url": "https://static.klipy.com/test_xs.gif", "width": 100, "height": 56}
-                        }
+                        "md": { "gif": {"url": "https://static.klipy.com/test_md.gif", "width": 320, "height": 180} },
+                        "sm": { "gif": {"url": "https://static.klipy.com/test_sm.gif", "width": 200, "height": 113} },
+                        "xs": { "gif": {"url": "https://static.klipy.com/test_xs.gif", "width": 100, "height": 56} }
                     }
                 }],
                 "current_page": 1,
@@ -302,13 +366,45 @@ mod tests {
             }
         }"#;
 
-        let response: Result<KlipySearchResponse, _> = serde_json::from_str(json);
-        assert!(response.is_ok());
-
-        let response = response.unwrap();
+        let response: KlipySearchResponse = serde_json::from_str(json).unwrap();
         assert!(response.result);
         assert_eq!(response.data.data.len(), 1);
-        assert_eq!(response.data.data[0].slug, "happy-cat-f7u");
-        assert_eq!(response.data.data[0].title, "Happy Cat");
+        match &response.data.data[0] {
+            KlipyItem::Gif(g) => {
+                assert_eq!(g.slug, "happy-cat-f7u");
+                assert_eq!(g.title, "Happy Cat");
+            }
+            other => panic!("expected Gif, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_ad_item_deserializes_alongside_gifs() {
+        // Real shape returned by Klipy when ads are enabled — see audit run on
+        // 2026-05-17 in the project history.
+        let json = r#"{
+            "result": true,
+            "data": {
+                "data": [
+                    { "type": "ad", "width": 320, "height": 100, "content": "<html>...</html>" },
+                    { "type": "gif", "id": 1, "slug": "x", "title": "y",
+                      "file": {
+                          "hd": { "gif": {"url":"u","width":1,"height":1} },
+                          "md": { "gif": {"url":"u","width":1,"height":1} },
+                          "sm": { "gif": {"url":"u","width":1,"height":1} },
+                          "xs": { "gif": {"url":"u","width":1,"height":1} }
+                      }
+                    },
+                    { "type": "sticker", "id": 2 }
+                ]
+            }
+        }"#;
+
+        let response: KlipySearchResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(response.data.data.len(), 3);
+        assert!(matches!(response.data.data[0], KlipyItem::Ad(_)));
+        assert!(matches!(response.data.data[1], KlipyItem::Gif(_)));
+        // Unknown types (e.g. future "sticker") are tolerated, not fatal.
+        assert!(matches!(response.data.data[2], KlipyItem::Unknown));
     }
 }

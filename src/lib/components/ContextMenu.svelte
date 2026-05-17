@@ -5,7 +5,7 @@
   import { invoke } from "@tauri-apps/api/core";
   import { showToast } from "$lib/stores/ui";
   import { favorites } from "$lib/stores/favorites";
-  import { searchResults } from "$lib/stores/search";
+  import { searchResults, saveKlipyGif } from "$lib/stores/search";
   import type { Favorite, KlipyGifResult } from "$lib/types";
 
   $: show = $contextMenu.show;
@@ -27,14 +27,7 @@
       } else {
         const klipy = item as KlipyGifResult;
         showToast("Downloading GIF...", "info");
-        const downloaded = await invoke<Favorite>("download_klipy_gif", {
-          klipySlug: klipy.slug,
-          gifUrl: klipy.gif_url,
-          mp4Url: klipy.mp4_url,
-          title: klipy.title,
-          width: klipy.width,
-          height: klipy.height,
-        });
+        const downloaded = await saveKlipyGif(klipy);
 
         await invoke("copy_image_to_clipboard", {
           filePath: downloaded.filepath,
@@ -55,14 +48,7 @@
     try {
       const klipy = item as KlipyGifResult;
       showToast("Downloading GIF...", "info");
-      await invoke<Favorite>("download_klipy_gif", {
-        klipySlug: klipy.slug,
-        gifUrl: klipy.gif_url,
-        mp4Url: klipy.mp4_url,
-        title: klipy.title,
-        width: klipy.width,
-        height: klipy.height,
-      });
+      await saveKlipyGif(klipy);
       showToast("Added to favorites!", "success");
     } catch (error) {
       console.error("Failed to add to favorites:", error);
@@ -175,6 +161,8 @@
 {#if show}
   <div
     class="context-menu"
+    role="menu"
+    tabindex="-1"
     style="left: {x}px; top: {y}px;"
     transition:scale={{ duration: 100, start: 0.95 }}
     on:contextmenu|preventDefault

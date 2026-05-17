@@ -1,66 +1,61 @@
+use crate::commands::CommandResult;
 use tauri::{AppHandle, Emitter, Manager};
 
 #[tauri::command]
-pub async fn close_window(app: AppHandle) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window("main") {
-        // Hide the window FIRST
-        window.hide().map_err(|e| e.to_string())?;
+pub async fn close_window(app: AppHandle) -> CommandResult<()> {
+    let Some(window) = app.get_webview_window("main") else {
+        return Ok(());
+    };
+    window.hide()?;
 
-        // On macOS, hide and deactivate the app so focus returns to previous app
-        #[cfg(target_os = "macos")]
-        {
-            // Use a channel to wait for the main thread operation to complete
-            let (tx, rx) = tokio::sync::oneshot::channel();
+    // On macOS, hide+deactivate the whole app so focus returns to whoever the
+    // user was talking to (Discord, Slack, etc.) before they popped the picker.
+    #[cfg(target_os = "macos")]
+    {
+        let (tx, rx) = tokio::sync::oneshot::channel();
 
-            app.run_on_main_thread(move || {
-                use objc2::runtime::AnyObject;
-                use objc2::{class, msg_send};
+        app.run_on_main_thread(move || {
+            use objc2::runtime::AnyObject;
+            use objc2::{class, msg_send};
 
-                unsafe {
-                    let app = class!(NSApplication);
-                    let shared: *mut AnyObject = msg_send![app, sharedApplication];
-                    // Hide the entire app and return focus
-                    let _: () = msg_send![shared, hide: shared];
-                    // Then deactivate for good measure
-                    let _: () = msg_send![shared, deactivate];
-                }
+            unsafe {
+                let app = class!(NSApplication);
+                let shared: *mut AnyObject = msg_send![app, sharedApplication];
+                let _: () = msg_send![shared, hide: shared];
+                let _: () = msg_send![shared, deactivate];
+            }
+            let _ = tx.send(());
+        })?;
 
-                // Signal completion
-                let _ = tx.send(());
-            }).map_err(|e| e.to_string())?;
-
-            // Wait for hide/deactivate to complete
-            let _ = rx.await;
-        }
-
-        // Don't clear search here - let the frontend handle it when showing again
+        let _ = rx.await;
     }
+
     Ok(())
 }
 
 #[tauri::command]
-pub async fn show_window(app: AppHandle) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window("main") {
-        window.show().map_err(|e| e.to_string())?;
-        window.set_focus().map_err(|e| e.to_string())?;
-        // Clear search and reset selection when showing window
-        let _ = window.emit("clear-search", ());
+pub async fn show_window(app: AppHandle) -> CommandResult<()> {
+    let Some(window) = app.get_webview_window("main") else {
+        return Ok(());
+    };
+    window.show()?;
+    window.set_focus()?;
+    let _ = window.emit("clear-search", ());
+    let _ = window.emit("focus-search", ());
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn toggle_window(app: AppHandle) -> CommandResult<()> {
+    let Some(window) = app.get_webview_window("main") else {
+        return Ok(());
+    };
+    if window.is_visible()? {
+        window.hide()?;
+    } else {
+        window.show()?;
+        window.set_focus()?;
         let _ = window.emit("focus-search", ());
-    }
-    Ok(())
-}
-
-#[tauri::command]
-pub async fn toggle_window(app: AppHandle) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window("main") {
-        if window.is_visible().map_err(|e| e.to_string())? {
-            window.hide().map_err(|e| e.to_string())?;
-        } else {
-            window.show().map_err(|e| e.to_string())?;
-            window.set_focus().map_err(|e| e.to_string())?;
-            // Emit event to focus search field
-            let _ = window.emit("focus-search", ());
-        }
     }
     Ok(())
 }

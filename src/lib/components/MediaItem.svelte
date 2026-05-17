@@ -7,9 +7,11 @@
   import { invoke } from "@tauri-apps/api/core";
   import { convertFileSrc } from "@tauri-apps/api/core";
   import { onMount, onDestroy } from "svelte";
+  import { copyItem } from "$lib/utils/copyMedia";
 
   export let item: Favorite | KlipyGifResult;
-  export let index: number = 0;
+  // index is forwarded by the parent for keying; not read here
+  export const index: number = 0;
   export let selected: boolean = false;
   export let onClick: (item: Favorite | KlipyGifResult) => void = () => {};
   export let onHover: () => void = () => {};
@@ -149,39 +151,19 @@
     isLoading = true;
 
     try {
-      const clipboardMode = $settings?.clipboard_mode || "file";
+      const mode = $settings?.clipboard_mode ?? "file";
+      const format = $settings?.clipboard_format ?? "gif";
+      const result = await copyItem(item, mode, format);
+
+      if (!result.ok) {
+        showToast(result.reason, "error");
+        return;
+      }
 
       if (isLocalFavorite) {
-        const favorite = item as Favorite;
-        if (clipboardMode === "file") {
-          // Always use GIF for clipboard (Discord compatibility)
-          if (favorite.filepath) {
-            await invoke("copy_file_path_to_clipboard", {
-              filePath: favorite.filepath,
-            });
-          } else if (favorite.gif_url) {
-            await invoke("copy_text_to_clipboard", { text: favorite.gif_url });
-          }
-        } else if (favorite.gif_url) {
-          await invoke("copy_text_to_clipboard", { text: favorite.gif_url });
-        }
-        await invoke("increment_use_count", { id: favorite.id });
-        showToast("Copied!", "success");
-      } else {
-        const klipyResult = item as KlipyGifResult;
-        if (clipboardMode === "file") {
-          // Always download GIF for clipboard (Discord compatibility)
-          const filePath = await invoke<string>("download_gif_temp", {
-            gifUrl: klipyResult.gif_url,
-            filename: `${klipyResult.slug}.gif`,
-          });
-          await invoke("copy_file_path_to_clipboard", { filePath });
-          showToast("Copied!", "success");
-        } else {
-          await invoke("copy_text_to_clipboard", { text: klipyResult.gif_url });
-          showToast("Copied URL!", "success");
-        }
+        await invoke("increment_use_count", { id: (item as Favorite).id });
       }
+      showToast(result.via === "url" ? "Copied URL!" : "Copied!", "success");
     } catch (error) {
       console.error("Failed to copy:", error);
       showToast("Failed to copy", "error");

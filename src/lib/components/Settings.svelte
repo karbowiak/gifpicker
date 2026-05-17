@@ -3,37 +3,49 @@
   import { settings } from "$lib/stores/settings";
   import { showToast } from "$lib/stores/ui";
   import { invoke } from "@tauri-apps/api/core";
-  import type { ClipboardMode } from "$lib/types";
+  import { onDestroy } from "svelte";
+  import type {
+    ClipboardFormat,
+    ClipboardMode,
+    Settings as AppSettings,
+  } from "$lib/types";
+  import HotkeyCapture from "$lib/components/HotkeyCapture.svelte";
 
   let closeAfterSelection = true;
   let clipboardMode: ClipboardMode = "file";
+  let clipboardFormat: ClipboardFormat = "gif";
   let hotkey = "";
   let showAds = true;
-  let currentSettings: any = null;
+  let currentSettings: AppSettings | null = null;
   let isSaving = false;
 
-  settings.subscribe(($settings) => {
+  const unsubscribe = settings.subscribe(($settings) => {
     if ($settings) {
       currentSettings = $settings;
       closeAfterSelection = $settings.close_after_selection ?? true;
       clipboardMode = $settings.clipboard_mode || "file";
+      clipboardFormat = $settings.clipboard_format || "gif";
       hotkey = $settings.hotkey || "Cmd+G";
       showAds = $settings.show_ads ?? true;
     }
   });
+
+  onDestroy(unsubscribe);
 
   function closeModal() {
     showSettings.set(false);
   }
 
   async function saveSettings() {
+    if (!currentSettings) return;
     isSaving = true;
 
     try {
-      const newSettings = {
+      const newSettings: AppSettings = {
         ...currentSettings,
         close_after_selection: closeAfterSelection,
         clipboard_mode: clipboardMode,
+        clipboard_format: clipboardFormat,
         hotkey: hotkey.trim(),
         show_ads: showAds,
       };
@@ -66,6 +78,28 @@
   function handleBackdropClick(event: MouseEvent) {
     if (event.target === event.currentTarget) closeModal();
   }
+
+  // Tauri global shortcuts are intercepted at the OS layer, so if our current
+  // hotkey is, say, Cmd+G, pressing Cmd+G to capture a new one would just
+  // re-trigger the app rather than reach the capture handler. Unregister
+  // everything while recording, then re-register whatever's in `hotkey` after.
+  async function suspendGlobalHotkey() {
+    try {
+      await invoke("unregister_all_hotkeys");
+    } catch (error) {
+      console.error("Failed to suspend global hotkey:", error);
+    }
+  }
+
+  async function restoreGlobalHotkey() {
+    const target = hotkey.trim();
+    if (!target) return;
+    try {
+      await invoke("register_hotkey", { hotkey: target });
+    } catch (error) {
+      console.error("Failed to restore global hotkey:", error);
+    }
+  }
 </script>
 
 <svelte:window on:keydown={handleKeyDown} />
@@ -94,19 +128,34 @@
       <div class="setting-group">
         <label for="clipboard-mode">Clipboard Mode</label>
         <select id="clipboard-mode" bind:value={clipboardMode}>
-          <option value="file">Copy GIF File</option>
+          <option value="file">Copy file</option>
           <option value="url">Copy URL only</option>
         </select>
+        <span class="setting-hint">What to put on the clipboard when you click a GIF.</span>
       </div>
 
+      {#if clipboardMode === "file"}
+        <div class="setting-group">
+          <label for="clipboard-format">File Format</label>
+          <select id="clipboard-format" bind:value={clipboardFormat}>
+            <option value="gif">GIF — best compatibility (Discord, Slack)</option>
+            <option value="mp4">MP4 — smaller, smoother, less compatible</option>
+          </select>
+          <span class="setting-hint">Falls back to GIF if the chosen format isn't available.</span>
+        </div>
+      {/if}
+
       <div class="setting-group">
-        <label for="hotkey">Global Hotkey</label>
-        <input
-          id="hotkey"
-          type="text"
-          placeholder="e.g., Cmd+G"
+        <label for="hotkey-capture">Global Hotkey</label>
+        <HotkeyCapture
           bind:value={hotkey}
+          placeholder="Click to record"
+          on:capturestart={suspendGlobalHotkey}
+          on:captureend={restoreGlobalHotkey}
         />
+        <span class="setting-hint">
+          Click, then press your shortcut. Needs at least one modifier (Cmd/Ctrl/Alt).
+        </span>
       </div>
 
       <div class="setting-group support">
@@ -206,8 +255,7 @@
     color: var(--text-secondary);
   }
 
-  .setting-group select,
-  .setting-group input[type="text"] {
+  .setting-group select {
     padding: 8px 10px;
     font-size: 13px;
     border: 1px solid var(--border-color);
@@ -216,8 +264,7 @@
     color: var(--text-primary);
   }
 
-  .setting-group select:focus,
-  .setting-group input[type="text"]:focus {
+  .setting-group select:focus {
     outline: none;
     border-color: var(--accent-color);
   }

@@ -1,32 +1,31 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
-  import type { Favorite, KlipyGifResult } from "$lib/types";
+  import type { Favorite, KlipyResultItem, KlipyGifResult } from "$lib/types";
+  import { isKlipyAd } from "$lib/types";
   import MediaItem from "./MediaItem.svelte";
+  import AdItem from "./AdItem.svelte";
   import { selectedIndex } from "$lib/stores/ui";
 
-  export let items: (Favorite | KlipyGifResult)[] = [];
+  // Mixed grid: local favorites, klipy gifs, and klipy ads. Ads render via
+  // AdItem; everything else via MediaItem.
+  export let items: (Favorite | KlipyResultItem)[] = [];
   export let onItemClick: (item: Favorite | KlipyGifResult) => void = () => {};
   export let onScrollNearEnd: (() => void) | undefined = undefined;
 
   let containerElement: HTMLDivElement;
   let sentinelElement: HTMLDivElement;
-  let currentSelectedIndex = -1;
   let previousSelectedIndex = -1;
   let scrollObserver: IntersectionObserver | undefined;
 
-  // Subscribe to selected index
-  selectedIndex.subscribe((value) => {
-    currentSelectedIndex = value;
-  });
-
-  // Scroll to selected item ONLY when selection actually changes
+  // Auto-scroll the selected item into view only when selection actually changes
+  // (not on every items[] mutation — otherwise infinite-scroll appends would jump).
   $: if (
-    currentSelectedIndex !== previousSelectedIndex &&
-    currentSelectedIndex >= 0 &&
-    currentSelectedIndex < items.length
+    $selectedIndex !== previousSelectedIndex &&
+    $selectedIndex >= 0 &&
+    $selectedIndex < items.length
   ) {
     scrollToSelectedItem();
-    previousSelectedIndex = currentSelectedIndex;
+    previousSelectedIndex = $selectedIndex;
   }
 
   function scrollToSelectedItem() {
@@ -73,7 +72,7 @@
   }
 
   onMount(() => {
-    if (currentSelectedIndex >= 0 && currentSelectedIndex < items.length) {
+    if ($selectedIndex >= 0 && $selectedIndex < items.length) {
       scrollToSelectedItem();
     }
   });
@@ -97,15 +96,23 @@
     </div>
   {:else}
     <div class="masonry-grid">
-      {#each items.filter((i) => !!i) as item, index (item.id || index)}
-        <MediaItem
-          {item}
-          {index}
-          selected={currentSelectedIndex === index}
-          onClick={onItemClick}
-          onHover={() => selectedIndex.set(index)}
-          onLeave={() => selectedIndex.set(-1)}
-        />
+      {#each items as item, index (
+        isKlipyAd(item)
+          ? `ad:${index}:${item.content.length}`
+          : (('id' in item && item.id) ?? `i:${index}`)
+      )}
+        {#if isKlipyAd(item)}
+          <AdItem ad={item} />
+        {:else}
+          <MediaItem
+            item={item as Favorite | KlipyGifResult}
+            {index}
+            selected={$selectedIndex === index}
+            onClick={onItemClick}
+            onHover={() => selectedIndex.set(index)}
+            onLeave={() => selectedIndex.set(-1)}
+          />
+        {/if}
       {/each}
     </div>
 

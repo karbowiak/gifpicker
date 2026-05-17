@@ -14,14 +14,10 @@ A fast, native GIF picker app built with Tauri, SvelteKit, and TypeScript. Searc
 
 ## Downloads
 
-Pre-built installers are available on the [Releases](https://github.com/YOUR_USERNAME/gifpicker/releases) page:
+Pre-built installers are available on the [Releases](https://github.com/karbowiak/gifpicker/releases) page:
 
 - **macOS**: DMG installer
 - **Windows**: NSIS .exe installer
-
-## Building
-
-See [BUILDING.md](BUILDING.md) for instructions on building from source and creating releases.
 
 ## Development
 

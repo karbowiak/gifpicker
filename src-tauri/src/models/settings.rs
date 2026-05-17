@@ -10,6 +10,10 @@ pub struct Settings {
     pub launch_at_startup: bool,
     pub theme: Theme,
     pub clipboard_mode: ClipboardMode,
+    /// When clipboard_mode == File, which media format to copy. Defaults to
+    /// Gif for maximum compatibility (Discord, Slack). MP4 silently falls back
+    /// to Gif when the item has no MP4 source.
+    pub clipboard_format: ClipboardFormat,
     pub show_ads: bool,
 }
 
@@ -28,6 +32,13 @@ pub enum ClipboardMode {
     Url,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum ClipboardFormat {
+    Gif,
+    Mp4,
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -42,6 +53,7 @@ impl Default for Settings {
             launch_at_startup: false,
             theme: Theme::System,
             clipboard_mode: ClipboardMode::File,
+            clipboard_format: ClipboardFormat::Gif,
             show_ads: true,
         }
     }

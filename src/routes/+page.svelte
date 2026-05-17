@@ -25,137 +25,120 @@
     goHome,
     searchSuggestions,
     fetchSearchSuggestions,
+    saveKlipyGif,
   } from "$lib/stores/search";
   import { favorites } from "$lib/stores/favorites";
   import { settings } from "$lib/stores/settings";
   import { selectedIndex, showToast, showSettings } from "$lib/stores/ui";
-  import type { Favorite, KlipyGifResult, KlipyCategory } from "$lib/types";
-  import { isFavorite } from "$lib/types";
+  import type {
+    Favorite,
+    KlipyGifResult,
+    KlipyResultItem,
+    KlipyCategory,
+  } from "$lib/types";
+  import { isFavorite, isKlipyAd } from "$lib/types";
+  import {
+    gridColumnsForWidth,
+    keyToDirection,
+    nextIndex,
+  } from "$lib/utils/gridNavigation";
+  import { copyItem } from "$lib/utils/copyMedia";
 
-  let allItems: (Favorite | KlipyGifResult)[] = [];
+  let allItems: (Favorite | KlipyResultItem)[] = [];
   let isLoading = true;
   let searchBarComponent: SearchBar;
 
-  // Combine search results based on view mode
+  // Flatten search results into a single ordered list for the grid + keyboard nav.
+  // Includes ad items — the grid renders them, but the keyboard handler and
+  // click handler skip past them so the user only ever "selects" real content.
   $: {
-    const items: (Favorite | KlipyGifResult)[] = [];
+    const items: (Favorite | KlipyResultItem)[] = [];
     const previousLength = allItems.length;
 
-    if ($viewMode === 'favorites') {
-      // Show favorites
-      if ($searchResults.local && $searchResults.local.length > 0) {
-        items.push(...$searchResults.local);
-      }
-    } else if ($viewMode === 'trending' || $viewMode === 'search' || $viewMode === 'category') {
-      // Show Klipy results (trending, search, or category)
-      if (
-        $searchResults.klipy &&
-        $searchResults.klipy.gifs &&
-        $searchResults.klipy.gifs.length > 0
-      ) {
-        items.push(...$searchResults.klipy.gifs);
-      }
+    if ($viewMode === "favorites") {
+      if ($searchResults.local?.length) items.push(...$searchResults.local);
+    } else if (
+      $viewMode === "trending" ||
+      $viewMode === "search" ||
+      $viewMode === "category"
+    ) {
+      if ($searchResults.klipy?.items?.length)
+        items.push(...$searchResults.klipy.items);
     }
-    // For 'categories' view, we show categories grid instead
+    // 'categories' view renders a separate grid below.
 
     allItems = items;
 
-    // Only reset selection if it's out of bounds AND we're not just adding more items (infinite scroll)
+    // Don't clobber selection during infinite-scroll appends — only when the
+    // selected index is genuinely off the end of a non-growing list.
     const isAddingMore = items.length > previousLength && previousLength > 0;
-
     if (!isAddingMore && $selectedIndex >= allItems.length) {
       selectedIndex.set(-1);
     }
   }
 
-  // Fetch search suggestions when in search mode with results
-  $: if ($viewMode === 'search' && $searchQuery.trim()) {
+  // Selectable = non-ad. Keyboard nav and Enter only land on these.
+  function isSelectable(item: Favorite | KlipyResultItem): boolean {
+    return !isKlipyAd(item);
+  }
+
+  // Walk forward (or backward) from `from` to the nearest selectable index.
+  function nextSelectable(from: number, step: 1 | -1): number {
+    let i = from;
+    while (i >= 0 && i < allItems.length) {
+      if (isSelectable(allItems[i])) return i;
+      i += step;
+    }
+    // Wrap around past either end so we don't strand the user on an ad row.
+    if (step === 1) {
+      for (let j = 0; j < allItems.length; j++)
+        if (isSelectable(allItems[j])) return j;
+    } else {
+      for (let j = allItems.length - 1; j >= 0; j--)
+        if (isSelectable(allItems[j])) return j;
+    }
+    return -1;
+  }
+
+  // Refresh related-search ticker whenever the query in search view changes.
+  $: if ($viewMode === "search" && $searchQuery.trim()) {
     fetchSearchSuggestions($searchQuery);
   }
 
-  // Handle infinite scroll - load more results
   async function handleScrollNearEnd() {
-    // Only load more for search/trending/category views
-    if ($viewMode === 'favorites' || $viewMode === 'categories' || $isLoadingMore) return;
-
+    if ($viewMode === "favorites" || $viewMode === "categories" || $isLoadingMore)
+      return;
     await loadMoreResults();
   }
 
-  // Handle item click - copy GIF to clipboard
-  async function handleItemClick(item: Favorite | KlipyGifResult) {
-    const clipboardMode = $settings?.clipboard_mode || "file";
+  async function copyItemToClipboard(item: Favorite | KlipyGifResult) {
+    const mode = $settings?.clipboard_mode ?? "file";
+    const format = $settings?.clipboard_format ?? "gif";
+    const result = await copyItem(item, mode, format);
 
+    if (!result.ok) {
+      showToast(result.reason, "error");
+      return;
+    }
+
+    if (isFavorite(item) && item.id) {
+      await invoke("increment_use_count", { id: item.id });
+    }
+    showToast(
+      result.via === "url" ? "URL copied to clipboard!" : "Copied to clipboard!",
+      "success",
+    );
+  }
+
+  async function handleItemClick(item: Favorite | KlipyResultItem) {
+    if (isKlipyAd(item)) return; // ad clicks are handled inside the iframe
     try {
-      if (isFavorite(item)) {
-        const favorite = item as Favorite;
+      await copyItemToClipboard(item as Favorite | KlipyGifResult);
 
-        if (clipboardMode === "file") {
-          // Copy the file itself
-          if (favorite.filepath) {
-            await invoke("copy_file_path_to_clipboard", {
-              filePath: favorite.filepath,
-            });
-          } else if (favorite.gif_url) {
-            await invoke("copy_text_to_clipboard", {
-              text: favorite.gif_url,
-            });
-          }
-        } else {
-          // Copy URL mode
-          if (favorite.gif_url) {
-            await invoke("copy_text_to_clipboard", {
-              text: favorite.gif_url,
-            });
-          } else {
-            showToast("No URL available for this GIF", "error");
-            return;
-          }
-        }
-
-        // Increment use count
-        await invoke("increment_use_count", {
-          id: favorite.id,
-        });
-
-        showToast("Copied to clipboard!", "success");
-      } else {
-        // For Klipy search results (not favorited yet)
-        const klipyResult = item as KlipyGifResult;
-
-        if (clipboardMode === "file") {
-          // Download and copy the file (temporary, not saved to favorites)
-          try {
-            const filePath = await invoke<string>("download_gif_temp", {
-              gifUrl: klipyResult.gif_url,
-              filename: `${klipyResult.slug}.gif`,
-            });
-            await invoke("copy_file_path_to_clipboard", {
-              filePath: filePath,
-            });
-            showToast("GIF copied to clipboard!", "success");
-          } catch (error) {
-            console.error("Failed to download GIF:", error);
-            // Fallback to URL copy
-            await invoke("copy_text_to_clipboard", {
-              text: klipyResult.gif_url,
-            });
-            showToast("GIF URL copied to clipboard!", "success");
-          }
-        } else {
-          // URL mode - just copy the URL
-          await invoke("copy_text_to_clipboard", {
-            text: klipyResult.gif_url,
-          });
-          showToast("GIF URL copied to clipboard!", "success");
-        }
-      }
-
-      // Close window if setting is enabled
-      const closeAfterCopy = $settings?.close_after_selection ?? true;
-      if (closeAfterCopy) {
-        // Reset search before closing so favorites show on next open
+      if ($settings?.close_after_selection ?? true) {
+        // Reset state before closing so the next open lands on favorites.
         clearSearch();
-        await performSearch(""); // Reload favorites
+        await performSearch("");
         try {
           await invoke("close_window");
         } catch (error) {
@@ -168,137 +151,90 @@
     }
   }
 
-  // Toggle favorite on selected item
   async function toggleFavorite() {
     const current = $selectedIndex;
     if (current < 0 || current >= allItems.length) return;
-
     const item = allItems[current];
+    if (isKlipyAd(item)) return;
 
     if (isFavorite(item)) {
-      // Remove from favorites
-      const favorite = item as Favorite;
-      if (favorite.id) {
-        try {
-          await favorites.delete(favorite.id);
-          searchResults.update((r) => ({
-            ...r,
-            local: r.local.filter((f) => f.id !== favorite.id),
-          }));
-          showToast("Removed from favorites", "success");
-        } catch (e) {
-          showToast("Failed to remove", "error");
-        }
+      if (!item.id) return;
+      try {
+        await favorites.delete(item.id);
+        searchResults.update((r) => ({
+          ...r,
+          local: r.local.filter((f) => f.id !== item.id),
+        }));
+        showToast("Removed from favorites", "success");
+      } catch {
+        showToast("Failed to remove", "error");
       }
     } else {
-      // Add to favorites
-      const klipyResult = item as KlipyGifResult;
       try {
-        await invoke("add_klipy_favorite", {
-          gifUrl: klipyResult.gif_url,
-          mp4Url: klipyResult.mp4_url || null,
-          sourceId: klipyResult.slug,
-          sourceUrl: klipyResult.url,
-          title: klipyResult.title || "Untitled",
-          width: klipyResult.width,
-          height: klipyResult.height,
-        });
+        await saveKlipyGif(item as KlipyGifResult);
         showToast("Added to favorites!", "success");
-      } catch (e) {
+      } catch {
         showToast("Failed to add", "error");
       }
     }
   }
 
-  // Handle category click - load GIFs for that category
   function handleCategoryClick(category: KlipyCategory) {
     loadCategoryGifs(category);
   }
 
-  // Get number of grid columns based on window width
-  function getColumnCount(): number {
-    const width = window.innerWidth;
-    if (width <= 400) return 1;
-    if (width <= 600) return 2;
-    if (width <= 900) return 3;
-    return 4;
+  function focusGridFromSearchInput(input: HTMLInputElement) {
+    input.blur();
+    // First selectable item — skip an ad if it happens to be at index 0.
+    const first = nextSelectable(0, 1);
+    selectedIndex.set(first >= 0 ? first : 0);
+    document
+      .querySelector(".masonry-layout")
+      ?.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  // Keyboard navigation - grid-based since CSS Grid maintains DOM order = visual order
   function handleKeyDown(event: KeyboardEvent) {
-    // Check if user is typing in search
+    // When typing in the search box, only Up/Down should escape into the grid.
     if (event.target instanceof HTMLInputElement) {
-      // If it's an arrow key (Up/Down), we want to blur input and allow navigation
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault();
-        (event.target as HTMLInputElement).blur();
-        selectedIndex.set(0);
-
-        const container = document.querySelector(".masonry-layout");
-        if (container) container.scrollTo({ top: 0, behavior: "smooth" });
-
-        return;
-      } else {
-        return;
+        focusGridFromSearchInput(event.target);
       }
+      return;
     }
 
     const itemCount = allItems.length;
     const current = $selectedIndex;
-    const cols = getColumnCount();
+
+    const direction = keyToDirection(event.key);
+    if (direction) {
+      event.preventDefault();
+      const cols = gridColumnsForWidth(window.innerWidth);
+      const target = nextIndex(current, direction, itemCount, cols);
+      if (target === null) return;
+      // Skip ad slots so keyboard nav only lands on selectable content.
+      const landing = isSelectable(allItems[target])
+        ? target
+        : nextSelectable(target, direction === "left" || direction === "up" ? -1 : 1);
+      if (landing >= 0) selectedIndex.set(landing);
+      return;
+    }
 
     switch (event.key) {
-      case "ArrowDown":
-        event.preventDefault();
-        // Move down by column count, or to last item
-        if (current + cols < itemCount) {
-          selectedIndex.set(current + cols);
-        } else if (current < itemCount - 1) {
-          selectedIndex.set(itemCount - 1);
-        }
-        break;
-
-      case "ArrowUp":
-        event.preventDefault();
-        // Move up by column count, or to first item
-        if (current - cols >= 0) {
-          selectedIndex.set(current - cols);
-        } else if (current > 0) {
-          selectedIndex.set(0);
-        }
-        break;
-
-      case "ArrowRight":
-        event.preventDefault();
-        if (current + 1 < itemCount) {
-          selectedIndex.set(current + 1);
-        }
-        break;
-
-      case "ArrowLeft":
-        event.preventDefault();
-        if (current - 1 >= 0) {
-          selectedIndex.set(current - 1);
-        }
-        break;
-
       case "Enter":
         event.preventDefault();
-        if (current >= 0 && current < itemCount) {
+        if (current >= 0 && current < itemCount && isSelectable(allItems[current]))
           handleItemClick(allItems[current]);
-        }
         break;
-
       case "f":
       case "F":
         event.preventDefault();
         toggleFavorite();
         break;
-
       case "Escape":
         event.preventDefault();
         clearSearch();
-        performSearch(""); // Reset to favorites
+        performSearch("");
         isSearching.set(false);
         isLoadingMore.set(false);
         invoke("close_window").catch(console.error);
@@ -308,62 +244,33 @@
 
   onMount(async () => {
     try {
-      // Load settings
       await settings.load();
-
-      // Load favorites
       await favorites.load();
 
-      // Load all favorites as initial display
       const allFavorites = await invoke<Favorite[]>("get_all_favorites");
       searchResults.set({ local: allFavorites, klipy: undefined });
 
       isLoading = false;
 
-      // Listen for tray menu "open-settings" event
-      await listen("open-settings", () => {
-        showSettings.set(true);
-      });
-
-      // Listen for "focus-search" event to focus the search bar
-      await listen("focus-search", () => {
-        if (searchBarComponent) {
-          searchBarComponent.focus();
-        }
-      });
-
-      // Listen for "clear-search" event to clear the search bar
+      await listen("open-settings", () => showSettings.set(true));
+      await listen("focus-search", () => searchBarComponent?.focus());
       await listen("clear-search", () => {
-        // Force reset all loading states
         isSearching.set(false);
         isLoadingMore.set(false);
-
-        if (searchBarComponent) {
-          searchBarComponent.clear();
-        }
+        searchBarComponent?.clear();
       });
 
-      // Listen for window focus events to reset state when window is shown
       const { getCurrentWindow } = await import("@tauri-apps/api/window");
       const currentWindow = getCurrentWindow();
 
       await currentWindow.onFocusChanged(({ payload: focused }) => {
-        if (focused) {
-          // Force reset ALL loading states to prevent stuck UI
-          isSearching.set(false);
-          isLoadingMore.set(false);
-
-          // Reset to home/favorites view
-          viewMode.set('favorites');
-          
-          // Clear search and reset to favorites
-          if (searchBarComponent) {
-            searchBarComponent.clear();
-          }
-          
-          // Reload favorites
-          goHome();
-        }
+        if (!focused) return;
+        // Reset everything to a known-clean state on each show.
+        isSearching.set(false);
+        isLoadingMore.set(false);
+        viewMode.set("favorites");
+        searchBarComponent?.clear();
+        goHome();
       });
     } catch (error) {
       console.error("Failed to initialize:", error);
@@ -384,7 +291,6 @@
       <p>Loading...</p>
     </div>
   {:else if $viewMode === 'categories'}
-    <!-- Categories Grid -->
     <div class="categories-container">
       {#if $currentCategory}
         <button class="back-button" on:click={() => goHome()}>
@@ -405,7 +311,6 @@
       </div>
     </div>
   {:else}
-    <!-- GIF Grid (favorites, trending, search, category) -->
     {#if $viewMode === 'category' && $currentCategory}
       <div class="category-header">
         <button class="back-button" on:click={() => { viewMode.set('categories'); loadCategories(); }}>
@@ -415,11 +320,10 @@
       </div>
     {/if}
 
-    <!-- Search suggestions ticker -->
     {#if $viewMode === 'search' && $searchSuggestions.length > 0}
-      <SearchSuggestionsTicker onSelect={(s) => { if (searchBarComponent) searchBarComponent.setQuery(s); }} />
+      <SearchSuggestionsTicker onSelect={(s) => searchBarComponent?.setQuery(s)} />
     {/if}
-    
+
     <MasonryLayout
       items={allItems}
       onItemClick={handleItemClick}
@@ -434,7 +338,6 @@
     {/if}
   {/if}
 
-  <!-- Show Klipy attribution when displaying Klipy results -->
   {#if ($viewMode === 'search' || $viewMode === 'trending' || $viewMode === 'category' || $viewMode === 'categories') && (allItems.length > 0 || $categories.length > 0)}
     <a
       href="https://klipy.com"
@@ -483,12 +386,10 @@
     color: var(--text-primary);
     background-color: var(--bg-primary);
 
-    /* Disable text selection for better app feel */
     -webkit-user-select: none;
     user-select: none;
   }
 
-  /* Light mode override */
   @media (prefers-color-scheme: light) {
     :global(:root) {
       --bg-primary: #ffffff;

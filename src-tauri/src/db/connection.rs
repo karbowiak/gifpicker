@@ -78,7 +78,7 @@ impl Database {
                 .await
                 .context(format!("Failed to record migration {}", name))?;
 
-                println!("Applied migration: {}", name);
+                eprintln!("Applied migration: {}", name);
             }
         }
 

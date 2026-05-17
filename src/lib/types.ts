@@ -4,6 +4,7 @@ export type MediaType = 'gif' | 'image' | 'video';
 export type Source = 'klipy' | 'local' | 'upload';
 export type Theme = 'light' | 'dark' | 'system';
 export type ClipboardMode = 'file' | 'url';
+export type ClipboardFormat = 'gif' | 'mp4';
 export type ViewMode = 'favorites' | 'trending' | 'categories' | 'category' | 'search';
 
 export interface Favorite {
@@ -36,10 +37,12 @@ export interface Settings {
   launch_at_startup: boolean;
   theme: Theme;
   clipboard_mode: ClipboardMode;
+  clipboard_format: ClipboardFormat;
   show_ads: boolean;
 }
 
 export interface KlipyGifResult {
+  kind: 'gif';
   id: string;
   slug: string;
   title: string;
@@ -50,8 +53,20 @@ export interface KlipyGifResult {
   height: number;
 }
 
+// Inline ad item from Klipy. `content` is a self-contained HTML document
+// that must render in a sandboxed iframe — it handles its own click/impression
+// tracking, so we don't fire any pings ourselves.
+export interface KlipyAdResult {
+  kind: 'ad';
+  width: number;
+  height: number;
+  content: string;
+}
+
+export type KlipyResultItem = KlipyGifResult | KlipyAdResult;
+
 export interface KlipySearchResults {
-  gifs: KlipyGifResult[];
+  items: KlipyResultItem[];
   total_count: number;
   page: number;
 }
@@ -74,15 +89,20 @@ export interface SearchResult {
   klipy?: KlipySearchResults;
 }
 
-// Type guards
-export function isFavorite(item: Favorite | KlipyGifResult): item is Favorite {
-  return 'filepath' in item || 'use_count' in item;
+// Type guards. The grid mixes favorites, klipy gifs, and ads, so callers
+// need to dispatch on shape.
+export function isFavorite(item: Favorite | KlipyResultItem): item is Favorite {
+  return 'use_count' in item;
 }
 
-export function isKlipyResult(item: Favorite | KlipyGifResult): item is KlipyGifResult {
-  return 'slug' in item && !('use_count' in item);
+export function isKlipyAd(item: Favorite | KlipyResultItem): item is KlipyAdResult {
+  return 'kind' in item && item.kind === 'ad';
 }
 
-export function isKlipyCategory(item: Favorite | KlipyGifResult | KlipyCategory): item is KlipyCategory {
+export function isKlipyGif(item: Favorite | KlipyResultItem): item is KlipyGifResult {
+  return 'kind' in item && item.kind === 'gif';
+}
+
+export function isKlipyCategory(item: Favorite | KlipyResultItem | KlipyCategory): item is KlipyCategory {
   return 'slug' in item && 'name' in item && !('title' in item);
 }

@@ -1,7 +1,8 @@
-import { writable } from 'svelte/store';
+import { writable, get } from 'svelte/store';
 import { invoke } from '@tauri-apps/api/core';
 import { settings } from '$lib/stores/settings';
 import type { Favorite, KlipyGifResult, KlipySearchResults, KlipyCategory, KlipyCategoriesResult, SearchResult, ViewMode } from '$lib/types';
+import { isKlipyGif } from '$lib/types';
 
 // Current view mode
 export const viewMode = writable<ViewMode>('favorites');
@@ -54,7 +55,6 @@ export async function performSearch(query: string) {
       searchResults.set({ local: allFavorites, klipy: undefined });
       currentQuery = '';
       currentPage = 1;
-      currentPage = 1;
       totalCount = 0;
       hasMore = false;
     } catch (error) {
@@ -67,7 +67,6 @@ export async function performSearch(query: string) {
   isSearching.set(true);
   searchError.set(null);
   currentQuery = query;
-  currentPage = 1;
   currentPage = 1;
   totalCount = 0;
   hasMore = true;
@@ -112,15 +111,10 @@ export async function loadMoreResults() {
   // Only load more if we have a query, not already loading, and have more results
   if (!currentQuery || currentPage === 0 || !hasMore) return;
 
-  // Check if we've reached the end of results
-  const currentResults = await new Promise<SearchResult>(resolve => {
-    searchResults.subscribe(value => resolve(value))();
-  });
+  // Count only GIFs against totalCount — Klipy's `total` excludes ads.
+  const currentGifCount =
+    get(searchResults).klipy?.items.filter(isKlipyGif).length ?? 0;
 
-  const currentGifCount = currentResults.klipy?.gifs.length || 0;
-
-
-  // If totalCount is valid and we've reached it, stop
   if (totalCount > 0 && currentGifCount >= totalCount) {
     hasMore = false;
     return;
@@ -147,30 +141,32 @@ export async function loadMoreResults() {
       showAds
     });
 
-    // If no results returned, we've reached the end
-    if (!result.gifs || result.gifs.length === 0) {
+    if (!result.items || result.items.length === 0) {
       hasMore = false;
       return;
     }
 
-    // Append new results to existing ones, filtering out duplicates
+    // Append, deduping GIFs by slug. Ads can repeat between pages (server may
+    // re-serve the same creative), so we drop duplicates by content hash too.
     searchResults.update(current => {
-      const existingGifs = current.klipy?.gifs || [];
-      const newGifs = result.gifs || [];
+      const existing = current.klipy?.items ?? [];
+      const seenSlugs = new Set(
+        existing.filter(isKlipyGif).map(g => g.slug)
+      );
+      const seenAdHashes = new Set(
+        existing.filter(i => i.kind === 'ad').map(i => i.content)
+      );
 
-      // Create a Set of existing slugs for fast lookup
-      const existingSlugs = new Set(existingGifs.map(gif => gif.slug));
-
-      // Filter out duplicates from new results
-      const uniqueNewGifs = newGifs.filter(gif => !existingSlugs.has(gif.slug));
-
-
+      const fresh = result.items.filter(item => {
+        if (item.kind === 'gif') return !seenSlugs.has(item.slug);
+        return !seenAdHashes.has(item.content);
+      });
 
       return {
         ...current,
         klipy: {
           ...result,
-          gifs: [...existingGifs, ...uniqueNewGifs]
+          items: [...existing, ...fresh]
         }
       };
     });
@@ -198,22 +194,19 @@ export function cancelPendingSearch() {
   clearTimeout(searchDebounceTimer);
 }
 
-// Download Klipy GIF
-export async function downloadKlipyGif(gif: KlipyGifResult): Promise<Favorite> {
-  try {
-    const favorite = await invoke<Favorite>('download_klipy_gif', {
-      klipySlug: gif.slug,
-      gifUrl: gif.gif_url,
-      mp4Url: gif.mp4_url,
-      title: gif.title,
-      width: gif.width,
-      height: gif.height
-    });
-    return favorite;
-  } catch (error) {
-    console.error('Failed to download Klipy GIF:', error);
-    throw error;
-  }
+// Download & save a Klipy GIF as a favorite.
+// Single command on the backend; keep this thin wrapper so callers
+// don't have to spell out every kwarg.
+export async function saveKlipyGif(gif: KlipyGifResult): Promise<Favorite> {
+  return await invoke<Favorite>('add_klipy_favorite', {
+    gifUrl: gif.gif_url,
+    mp4Url: gif.mp4_url ?? null,
+    sourceId: gif.slug,
+    sourceUrl: gif.url,
+    title: gif.title || 'Untitled',
+    width: gif.width,
+    height: gif.height,
+  });
 }
 
 // Get trending GIFs
@@ -249,7 +242,8 @@ export async function loadTrending() {
     });
     currentPage = 1;
     totalCount = result.total_count;
-    hasMore = result.gifs.length < result.total_count;
+    const gifCount = result.items.filter(isKlipyGif).length;
+    hasMore = gifCount < result.total_count;
   } catch (error) {
     console.error('Failed to load trending:', error);
   } finally {
@@ -314,7 +308,8 @@ export async function loadCategoryGifs(category: KlipyCategory) {
       klipy: result
     });
     totalCount = result.total_count;
-    hasMore = result.gifs.length < result.total_count;
+    const gifCount = result.items.filter(isKlipyGif).length;
+    hasMore = gifCount < result.total_count;
   } catch (error) {
     console.error('Failed to load category GIFs:', error);
   } finally {
@@ -350,7 +345,6 @@ export function clearSearch() {
   autocompleteSuggestions.set([]);
   searchSuggestions.set([]);
   currentQuery = '';
-  currentPage = 1;
   currentPage = 1;
   totalCount = 0;
   hasMore = false;

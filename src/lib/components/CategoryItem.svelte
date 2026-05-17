@@ -3,7 +3,8 @@
   import { onMount, onDestroy } from "svelte";
 
   export let category: KlipyCategory;
-  export let index: number = 0;
+  // index is forwarded by the parent for keying; not read here
+  export const index: number = 0;
   export let selected: boolean = false;
   export let onClick: (category: KlipyCategory) => void = () => {};
   export let onHover: () => void = () => {};

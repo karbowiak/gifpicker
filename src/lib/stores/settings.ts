@@ -12,16 +12,18 @@ const defaultSettings: Settings = {
   launch_at_startup: false,
   theme: 'system',
   clipboard_mode: 'file',
+  clipboard_format: 'gif',
   show_ads: true
 };
 
 // Settings store
 function createSettingsStore() {
-  const { subscribe, set, update } = writable<Settings>(defaultSettings);
+  const store = writable<Settings>(defaultSettings);
+  const { subscribe, set, update } = store;
 
   return {
     subscribe,
-    get: () => get({ subscribe }),
+    get: () => get(store),
 
     async load() {
       try {
@@ -45,10 +47,9 @@ function createSettingsStore() {
       }
     },
 
-    async updateSetting(key: keyof Settings, value: any) {
+    async updateSetting<K extends keyof Settings>(key: K, value: Settings[K]) {
       try {
-        const valueStr = JSON.stringify(value);
-        await invoke('update_setting', { key, value: valueStr });
+        await invoke('update_setting', { key, value: JSON.stringify(value) });
         update(s => ({ ...s, [key]: value }));
       } catch (error) {
         console.error('Failed to update setting:', error);

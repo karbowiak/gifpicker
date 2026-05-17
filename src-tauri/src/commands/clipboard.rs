@@ -1,48 +1,37 @@
+use crate::commands::{CommandError, CommandResult};
 use crate::services::ClipboardManager;
 use std::path::PathBuf;
 
+fn clipboard() -> CommandResult<ClipboardManager> {
+    ClipboardManager::new().map_err(|e| CommandError::Clipboard(e.to_string()))
+}
+
 #[tauri::command]
-pub async fn copy_image_to_clipboard(
-    file_path: String,
-) -> Result<(), String> {
+pub fn copy_image_to_clipboard(file_path: String) -> CommandResult<()> {
     let path = PathBuf::from(file_path);
-
-    let mut clipboard = ClipboardManager::new()
-        .map_err(|e| format!("Failed to initialize clipboard: {}", e))?;
-
-    clipboard.copy_image(&path)
-        .map_err(|e| format!("Failed to copy image to clipboard: {}", e))
+    clipboard()?
+        .copy_image(&path)
+        .map_err(|e| CommandError::Clipboard(e.to_string()))
 }
 
 #[tauri::command]
-pub async fn copy_text_to_clipboard(
-    text: String,
-) -> Result<(), String> {
-    let mut clipboard = ClipboardManager::new()
-        .map_err(|e| format!("Failed to initialize clipboard: {}", e))?;
-
-    clipboard.copy_text(&text)
-        .map_err(|e| format!("Failed to copy text to clipboard: {}", e))
+pub fn copy_text_to_clipboard(text: String) -> CommandResult<()> {
+    clipboard()?
+        .copy_text(&text)
+        .map_err(|e| CommandError::Clipboard(e.to_string()))
 }
 
 #[tauri::command]
-pub async fn copy_file_path_to_clipboard(
-    file_path: String,
-) -> Result<(), String> {
+pub fn copy_file_path_to_clipboard(file_path: String) -> CommandResult<()> {
     let path = PathBuf::from(file_path);
-
-    let mut clipboard = ClipboardManager::new()
-        .map_err(|e| format!("Failed to initialize clipboard: {}", e))?;
-
-    clipboard.copy_file_path(&path)
-        .map_err(|e| format!("Failed to copy file path to clipboard: {}", e))
+    clipboard()?
+        .copy_file_path(&path)
+        .map_err(|e| CommandError::Clipboard(e.to_string()))
 }
 
 #[tauri::command]
-pub async fn get_clipboard_text() -> Result<String, String> {
-    let mut clipboard = ClipboardManager::new()
-        .map_err(|e| format!("Failed to initialize clipboard: {}", e))?;
-
-    clipboard.get_text()
-        .map_err(|e| format!("Failed to get clipboard text: {}", e))
+pub fn get_clipboard_text() -> CommandResult<String> {
+    clipboard()?
+        .get_text()
+        .map_err(|e| CommandError::Clipboard(e.to_string()))
 }

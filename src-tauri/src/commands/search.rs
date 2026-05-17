@@ -1,11 +1,7 @@
-use crate::commands::AppState;
-use crate::config::{KLIPY_API_KEY_NO_ADS, KLIPY_API_KEY_WITH_ADS};
-use crate::db::FavoritesDb;
+use crate::commands::{AppState, CommandResult};
 use crate::models::Favorite;
-use crate::services::KlipyClient;
+use crate::services::klipy::{KlipyAd, KlipyGif, KlipyItem};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-use tokio::sync::Mutex;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SearchResult {
@@ -15,9 +11,20 @@ pub struct SearchResult {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct KlipySearchResults {
-    pub gifs: Vec<KlipyGifResult>,
+    /// Mixed list of gifs and ads, in server-determined order. Frontend
+    /// renders each kind with its own component.
+    pub items: Vec<KlipyResultItem>,
     pub total_count: u32,
     pub page: u32,
+}
+
+/// Discriminated union over a `kind` tag — `kind` (not `type`) to avoid the
+/// JS reserved-word issue and to match TS convention.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum KlipyResultItem {
+    Gif(KlipyGifResult),
+    Ad(KlipyAdResult),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -30,6 +37,16 @@ pub struct KlipyGifResult {
     pub mp4_url: Option<String>,
     pub width: u32,
     pub height: u32,
+}
+
+/// Ad item passed through to the frontend. `content` is a full HTML document
+/// to render in a sandboxed iframe; it handles its own click + impression
+/// tracking. The width/height are intrinsic to the ad creative.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct KlipyAdResult {
+    pub width: u32,
+    pub height: u32,
+    pub content: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -47,27 +64,51 @@ pub struct KlipyCategoriesResult {
     pub categories: Vec<KlipyCategory>,
 }
 
-/// Get the appropriate API key based on ads setting
-fn get_api_key(show_ads: bool) -> String {
-    if show_ads {
-        KLIPY_API_KEY_WITH_ADS.to_string()
-    } else {
-        KLIPY_API_KEY_NO_ADS.to_string()
+impl From<KlipyGif> for KlipyGifResult {
+    fn from(gif: KlipyGif) -> Self {
+        // HD is the original for download/clipboard; MD's dimensions match what we render.
+        let hd = &gif.file.hd;
+        let md = &gif.file.md;
+        KlipyGifResult {
+            id: gif.id.to_string(),
+            slug: gif.slug.clone(),
+            title: gif.title,
+            url: format!("https://klipy.com/gifs/{}", gif.slug),
+            gif_url: hd.gif.url.clone(),
+            mp4_url: hd.mp4.as_ref().map(|m| m.url.clone()),
+            width: md.gif.width,
+            height: md.gif.height,
+        }
     }
+}
+
+impl From<KlipyAd> for KlipyAdResult {
+    fn from(ad: KlipyAd) -> Self {
+        KlipyAdResult {
+            width: ad.width,
+            height: ad.height,
+            content: ad.content,
+        }
+    }
+}
+
+fn map_items(items: Vec<KlipyItem>) -> Vec<KlipyResultItem> {
+    items
+        .into_iter()
+        .filter_map(|item| match item {
+            KlipyItem::Gif(gif) => Some(KlipyResultItem::Gif(gif.into())),
+            KlipyItem::Ad(ad) => Some(KlipyResultItem::Ad(ad.into())),
+            KlipyItem::Unknown => None,
+        })
+        .collect()
 }
 
 #[tauri::command]
 pub async fn search_local(
     query: String,
-    state: tauri::State<'_, Arc<Mutex<AppState>>>,
-) -> Result<Vec<Favorite>, String> {
-    let state = state.lock().await;
-    let favorites_db = FavoritesDb::new(state.db.pool());
-
-    favorites_db
-        .search(&query)
-        .await
-        .map_err(|e| format!("Failed to search favorites: {}", e))
+    state: tauri::State<'_, AppState>,
+) -> CommandResult<Vec<Favorite>> {
+    Ok(state.db.favorites().search(&query).await?)
 }
 
 #[tauri::command]
@@ -76,39 +117,15 @@ pub async fn search_klipy(
     limit: u32,
     page: u32,
     show_ads: bool,
-) -> Result<KlipySearchResults, String> {
-    let api_key = get_api_key(show_ads);
-    let client = KlipyClient::new(api_key);
-
-    let response = client
-        .search(&query, limit, page)
-        .await
-        .map_err(|e| format!("Failed to search Klipy: {}", e))?;
-
-    let gifs = response
-        .data
-        .data
-        .into_iter()
-        .map(|gif| {
-            // Use HD format for original GIF, MD for display
-            let hd = &gif.file.hd;
-            let md = &gif.file.md;
-
-            KlipyGifResult {
-                id: gif.id.to_string(),
-                slug: gif.slug.clone(),
-                title: gif.title,
-                url: format!("https://klipy.com/gifs/{}", gif.slug),
-                gif_url: hd.gif.url.clone(),
-                mp4_url: hd.mp4.as_ref().map(|m| m.url.clone()),
-                width: md.gif.width,
-                height: md.gif.height,
-            }
-        })
-        .collect();
+    state: tauri::State<'_, AppState>,
+) -> CommandResult<KlipySearchResults> {
+    let response = state
+        .klipy(show_ads)
+        .search(&query, limit, page, state.ad_context_for(show_ads))
+        .await?;
 
     Ok(KlipySearchResults {
-        gifs,
+        items: map_items(response.data.data),
         total_count: response.data.total.unwrap_or(0),
         page: response.data.current_page.unwrap_or(page),
     })
@@ -120,16 +137,12 @@ pub async fn search_combined(
     klipy_limit: u32,
     klipy_page: u32,
     show_ads: bool,
-    state: tauri::State<'_, Arc<Mutex<AppState>>>,
-) -> Result<SearchResult, String> {
-    // Search local favorites
-    let local = search_local(query.clone(), state).await?;
-
-    // Search Klipy
-    let klipy = search_klipy(query, klipy_limit, klipy_page, show_ads)
+    state: tauri::State<'_, AppState>,
+) -> CommandResult<SearchResult> {
+    let local = state.db.favorites().search(&query).await?;
+    let klipy = search_klipy(query, klipy_limit, klipy_page, show_ads, state)
         .await
         .ok();
-
     Ok(SearchResult { local, klipy })
 }
 
@@ -138,38 +151,14 @@ pub async fn get_klipy_trending(
     limit: u32,
     page: u32,
     show_ads: bool,
-) -> Result<KlipySearchResults, String> {
-    let api_key = get_api_key(show_ads);
-    let client = KlipyClient::new(api_key);
-
-    let response = client
-        .trending(limit, page)
-        .await
-        .map_err(|e| format!("Failed to get trending GIFs: {}", e))?;
-
-    let gifs = response
-        .data
-        .data
-        .into_iter()
-        .map(|gif| {
-            let hd = &gif.file.hd;
-            let md = &gif.file.md;
-
-            KlipyGifResult {
-                id: gif.id.to_string(),
-                slug: gif.slug.clone(),
-                title: gif.title,
-                url: format!("https://klipy.com/gifs/{}", gif.slug),
-                gif_url: hd.gif.url.clone(),
-                mp4_url: hd.mp4.as_ref().map(|m| m.url.clone()),
-                width: md.gif.width,
-                height: md.gif.height,
-            }
-        })
-        .collect();
-
+    state: tauri::State<'_, AppState>,
+) -> CommandResult<KlipySearchResults> {
+    let response = state
+        .klipy(show_ads)
+        .trending(limit, page, state.ad_context_for(show_ads))
+        .await?;
     Ok(KlipySearchResults {
-        gifs,
+        items: map_items(response.data.data),
         total_count: response.data.total.unwrap_or(0),
         page: response.data.current_page.unwrap_or(page),
     })
@@ -178,28 +167,23 @@ pub async fn get_klipy_trending(
 #[tauri::command]
 pub async fn get_klipy_categories(
     show_ads: bool,
-) -> Result<KlipyCategoriesResult, String> {
-    let api_key = get_api_key(show_ads);
-    let client = KlipyClient::new(api_key);
-
-    let response = client
-        .categories()
-        .await
-        .map_err(|e| format!("Failed to get categories: {}", e))?;
+    state: tauri::State<'_, AppState>,
+) -> CommandResult<KlipyCategoriesResult> {
+    let response = state.klipy(show_ads).categories().await?;
 
     let categories = response
         .data
         .categories
         .into_iter()
-        .map(|cat| {
-            KlipyCategory {
-                name: cat.category,
-                slug: cat.query.clone(),
-                gif_url: cat.preview_url,
-                mp4_url: None, // Categories only have GIF preview
-                width: 200,    // Default dimensions for preview
-                height: 200,
-            }
+        .map(|cat| KlipyCategory {
+            name: cat.category,
+            slug: cat.query,
+            gif_url: cat.preview_url,
+            mp4_url: None,
+            // Category previews don't expose dimensions; pick a reasonable square
+            // so the masonry layout can lay them out without flicker.
+            width: 200,
+            height: 200,
         })
         .collect();
 
@@ -211,18 +195,12 @@ pub async fn get_autocomplete(
     query: String,
     limit: u32,
     show_ads: bool,
-) -> Result<Vec<String>, String> {
+    state: tauri::State<'_, AppState>,
+) -> CommandResult<Vec<String>> {
     if query.trim().is_empty() {
         return Ok(vec![]);
     }
-
-    let api_key = get_api_key(show_ads);
-    let client = KlipyClient::new(api_key);
-
-    client
-        .autocomplete(&query, limit)
-        .await
-        .map_err(|e| format!("Failed to get autocomplete: {}", e))
+    Ok(state.klipy(show_ads).autocomplete(&query, limit).await?)
 }
 
 #[tauri::command]
@@ -230,89 +208,23 @@ pub async fn get_search_suggestions(
     query: String,
     limit: u32,
     show_ads: bool,
-) -> Result<Vec<String>, String> {
+    state: tauri::State<'_, AppState>,
+) -> CommandResult<Vec<String>> {
     if query.trim().is_empty() {
         return Ok(vec![]);
     }
-
-    let api_key = get_api_key(show_ads);
-    let client = KlipyClient::new(api_key);
-
-    client
+    Ok(state
+        .klipy(show_ads)
         .search_suggestions(&query, limit)
-        .await
-        .map_err(|e| format!("Failed to get search suggestions: {}", e))
-}
-
-#[tauri::command]
-pub async fn download_klipy_gif(
-    klipy_slug: String,
-    gif_url: String,
-    mp4_url: Option<String>,
-    title: String,
-    width: u32,
-    height: u32,
-    state: tauri::State<'_, Arc<Mutex<AppState>>>,
-) -> Result<Favorite, String> {
-    let state = state.lock().await;
-
-    // Download both GIF and MP4
-    let (gif_path, mp4_path) = state
-        .downloader
-        .download_from_klipy(&gif_url, mp4_url.as_deref(), &klipy_slug)
-        .await
-        .map_err(|e| format!("Failed to download media: {}", e))?;
-
-    let filename = gif_path.file_name().unwrap().to_string_lossy().to_string();
-
-    let file_size = crate::services::Downloader::get_file_size(&gif_path)
-        .await
-        .ok()
-        .map(|s| s as i64);
-
-    // Create favorite
-    let mut favorite = crate::models::Favorite::new(
-        filename,
-        Some(gif_path.to_string_lossy().to_string()),
-        crate::models::MediaType::Gif,
-    )
-    .with_source(
-        crate::models::Source::Klipy,
-        Some(klipy_slug),
-        Some(gif_url),
-    )
-    .with_dimensions(width as i32, height as i32);
-
-    favorite.mp4_filepath = mp4_path.map(|p| p.to_string_lossy().to_string());
-    favorite.file_size = file_size;
-    favorite.description = Some(title);
-
-    // Save to database
-    let favorites_db = FavoritesDb::new(state.db.pool());
-    let id = favorites_db
-        .create(&favorite)
-        .await
-        .map_err(|e| format!("Failed to save favorite: {}", e))?;
-
-    favorite.id = Some(id);
-
-    Ok(favorite)
+        .await?)
 }
 
 #[tauri::command]
 pub async fn download_gif_temp(
     gif_url: String,
     filename: String,
-    state: tauri::State<'_, Arc<Mutex<AppState>>>,
-) -> Result<String, String> {
-    let state = state.lock().await;
-
-    // Download the GIF to a temporary location
-    let file_path = state
-        .downloader
-        .download_temp(&gif_url, &filename)
-        .await
-        .map_err(|e| format!("Failed to download GIF: {}", e))?;
-
-    Ok(file_path.to_string_lossy().to_string())
+    state: tauri::State<'_, AppState>,
+) -> CommandResult<String> {
+    let file_path = state.downloader.download_temp(&gif_url, &filename).await?;
+    Ok(file_path.to_string_lossy().into_owned())
 }

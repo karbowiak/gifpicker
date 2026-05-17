@@ -1,44 +1,26 @@
-use crate::commands::AppState;
-use crate::db::SettingsDb;
+use crate::commands::{AppState, CommandResult};
 use crate::models::Settings;
-use std::sync::Arc;
-use tokio::sync::Mutex;
 
 #[tauri::command]
-pub async fn get_settings(
-    state: tauri::State<'_, Arc<Mutex<AppState>>>,
-) -> Result<Settings, String> {
-    let state = state.lock().await;
-    let settings_db = SettingsDb::new(state.db.pool());
-
-    settings_db.get()
-        .await
-        .map_err(|e| format!("Failed to get settings: {}", e))
+pub async fn get_settings(state: tauri::State<'_, AppState>) -> CommandResult<Settings> {
+    Ok(state.db.settings().get().await?)
 }
 
 #[tauri::command]
 pub async fn save_settings(
     settings: Settings,
-    state: tauri::State<'_, Arc<Mutex<AppState>>>,
-) -> Result<(), String> {
-    let state = state.lock().await;
-    let settings_db = SettingsDb::new(state.db.pool());
-
-    settings_db.save(&settings)
-        .await
-        .map_err(|e| format!("Failed to save settings: {}", e))
+    state: tauri::State<'_, AppState>,
+) -> CommandResult<()> {
+    state.db.settings().save(&settings).await?;
+    Ok(())
 }
 
 #[tauri::command]
 pub async fn update_setting(
     key: String,
     value: String,
-    state: tauri::State<'_, Arc<Mutex<AppState>>>,
-) -> Result<(), String> {
-    let state = state.lock().await;
-    let settings_db = SettingsDb::new(state.db.pool());
-
-    settings_db.update_key(&key, value)
-        .await
-        .map_err(|e| format!("Failed to update setting: {}", e))
+    state: tauri::State<'_, AppState>,
+) -> CommandResult<()> {
+    state.db.settings().update_key(&key, value).await?;
+    Ok(())
 }

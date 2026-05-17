@@ -1,137 +1,77 @@
-use crate::db::{Database, FavoritesDb};
+use crate::commands::{AppState, CommandError, CommandResult};
 use crate::models::{Favorite, MediaType, Source};
 use crate::services::Downloader;
-use anyhow::Result;
 use image::GenericImageView;
-use std::sync::Arc;
-use tokio::sync::Mutex;
-
-pub struct AppState {
-    pub db: Arc<Database>,
-    pub downloader: Arc<Downloader>,
-}
 
 #[tauri::command]
-pub async fn get_all_favorites(
-    state: tauri::State<'_, Arc<Mutex<AppState>>>,
-) -> Result<Vec<Favorite>, String> {
-    let state = state.lock().await;
-    let favorites_db = FavoritesDb::new(state.db.pool());
-
-    favorites_db
-        .get_all()
-        .await
-        .map_err(|e| format!("Failed to get favorites: {}", e))
+pub async fn get_all_favorites(state: tauri::State<'_, AppState>) -> CommandResult<Vec<Favorite>> {
+    Ok(state.db.favorites().get_all().await?)
 }
 
 #[tauri::command]
 pub async fn get_favorite_by_id(
     id: i64,
-    state: tauri::State<'_, Arc<Mutex<AppState>>>,
-) -> Result<Option<Favorite>, String> {
-    let state = state.lock().await;
-    let favorites_db = FavoritesDb::new(state.db.pool());
-
-    favorites_db
-        .get_by_id(id)
-        .await
-        .map_err(|e| format!("Failed to get favorite: {}", e))
+    state: tauri::State<'_, AppState>,
+) -> CommandResult<Option<Favorite>> {
+    Ok(state.db.favorites().get_by_id(id).await?)
 }
 
 #[tauri::command]
 pub async fn add_favorite(
     favorite: Favorite,
-    state: tauri::State<'_, Arc<Mutex<AppState>>>,
-) -> Result<i64, String> {
-    let state = state.lock().await;
-    let favorites_db = FavoritesDb::new(state.db.pool());
-
-    favorites_db
-        .create(&favorite)
-        .await
-        .map_err(|e| format!("Failed to add favorite: {}", e))
+    state: tauri::State<'_, AppState>,
+) -> CommandResult<i64> {
+    Ok(state.db.favorites().create(&favorite).await?)
 }
 
 #[tauri::command]
 pub async fn update_favorite(
     favorite: Favorite,
-    state: tauri::State<'_, Arc<Mutex<AppState>>>,
-) -> Result<(), String> {
-    let state = state.lock().await;
-    let favorites_db = FavoritesDb::new(state.db.pool());
-
-    favorites_db
-        .update(&favorite)
-        .await
-        .map_err(|e| format!("Failed to update favorite: {}", e))
+    state: tauri::State<'_, AppState>,
+) -> CommandResult<()> {
+    state.db.favorites().update(&favorite).await?;
+    Ok(())
 }
 
 #[tauri::command]
-pub async fn delete_favorite(
-    id: i64,
-    state: tauri::State<'_, Arc<Mutex<AppState>>>,
-) -> Result<(), String> {
-    let state = state.lock().await;
-    let favorites_db = FavoritesDb::new(state.db.pool());
+pub async fn delete_favorite(id: i64, state: tauri::State<'_, AppState>) -> CommandResult<()> {
+    let favorites = state.db.favorites();
 
-    // Get the favorite to delete its file (if it has one)
-    if let Ok(Some(favorite)) = favorites_db.get_by_id(id).await {
-        // Delete the GIF file if it exists locally
-        if let Some(filepath) = &favorite.filepath {
-            let path = std::path::PathBuf::from(filepath);
+    // Best-effort: delete files we own before removing the row.
+    if let Some(favorite) = favorites.get_by_id(id).await? {
+        for path in [favorite.filepath.as_deref(), favorite.mp4_filepath.as_deref()]
+            .into_iter()
+            .flatten()
+        {
+            let path = std::path::PathBuf::from(path);
             if path.exists() {
-                Downloader::delete_file(&path)
-                    .await
-                    .map_err(|e| format!("Failed to delete GIF file: {}", e))?;
-            }
-        }
-        // Delete the MP4 file if it exists locally
-        if let Some(mp4_filepath) = &favorite.mp4_filepath {
-            let path = std::path::PathBuf::from(mp4_filepath);
-            if path.exists() {
-                Downloader::delete_file(&path)
-                    .await
-                    .map_err(|e| format!("Failed to delete MP4 file: {}", e))?;
+                Downloader::delete_file(&path).await?;
             }
         }
     }
 
-    favorites_db
-        .delete(id)
-        .await
-        .map_err(|e| format!("Failed to delete favorite: {}", e))
+    favorites.delete(id).await?;
+    Ok(())
 }
 
 #[tauri::command]
 pub async fn increment_use_count(
     id: i64,
-    state: tauri::State<'_, Arc<Mutex<AppState>>>,
-) -> Result<(), String> {
-    let state = state.lock().await;
-    let favorites_db = FavoritesDb::new(state.db.pool());
-
-    favorites_db
-        .increment_use_count(id)
-        .await
-        .map_err(|e| format!("Failed to increment use count: {}", e))
+    state: tauri::State<'_, AppState>,
+) -> CommandResult<()> {
+    state.db.favorites().increment_use_count(id).await?;
+    Ok(())
 }
 
 #[tauri::command]
 pub async fn import_local_file(
     file_path: String,
-    state: tauri::State<'_, Arc<Mutex<AppState>>>,
-) -> Result<Favorite, String> {
-    let state = state.lock().await;
+    state: tauri::State<'_, AppState>,
+) -> CommandResult<Favorite> {
     let source_path = std::path::PathBuf::from(&file_path);
 
-    // Import the file
-    let dest_path = state
-        .downloader
-        .import_local_file(&source_path)
-        .await
-        .map_err(|e| format!("Failed to import file: {}", e))?;
+    let dest_path = state.downloader.import_local_file(&source_path).await?;
 
-    // Determine media type from extension
     let extension = source_path
         .extension()
         .and_then(|e| e.to_str())
@@ -145,94 +85,82 @@ pub async fn import_local_file(
         _ => MediaType::Gif,
     };
 
-    // Get file metadata
-    let filename = dest_path.file_name().unwrap().to_string_lossy().to_string();
+    let filename = dest_path
+        .file_name()
+        .ok_or_else(|| CommandError::InvalidArgument("imported file has no name".into()))?
+        .to_string_lossy()
+        .into_owned();
 
     let file_size = Downloader::get_file_size(&dest_path)
         .await
         .ok()
         .map(|s| s as i64);
 
-    // Try to get image dimensions
-    let (width, height) = if let Ok(img) = image::open(&dest_path) {
-        let (w, h) = img.dimensions();
-        (Some(w as i32), Some(h as i32))
-    } else {
-        (None, None)
-    };
+    let dimensions = image::open(&dest_path)
+        .ok()
+        .map(|img| img.dimensions());
 
-    // Create favorite
     let mut favorite = Favorite::new(
         filename,
-        Some(dest_path.to_string_lossy().to_string()),
+        Some(dest_path.to_string_lossy().into_owned()),
         media_type,
     );
 
-    if let (Some(w), Some(h)) = (width, height) {
-        favorite = favorite.with_dimensions(w, h);
+    if let Some((w, h)) = dimensions {
+        favorite = favorite.with_dimensions(w as i32, h as i32);
     }
-
     favorite.file_size = file_size;
 
-    // Save to database
-    let favorites_db = FavoritesDb::new(state.db.pool());
-    let id = favorites_db
-        .create(&favorite)
-        .await
-        .map_err(|e| format!("Failed to save favorite: {}", e))?;
-
+    let id = state.db.favorites().create(&favorite).await?;
     favorite.id = Some(id);
-
     Ok(favorite)
 }
 
+/// Download a Klipy GIF (and its MP4 preview, if any) and persist it as a favorite.
+///
+/// Replaces the old `add_klipy_favorite` + `download_klipy_gif` pair, which
+/// were near-duplicates with different argument shapes.
 #[tauri::command]
 pub async fn add_klipy_favorite(
     gif_url: String,
     mp4_url: Option<String>,
     source_id: String,
-    source_url: String,
+    source_url: Option<String>,
     title: String,
     width: i32,
     height: i32,
-    state: tauri::State<'_, Arc<Mutex<AppState>>>,
-) -> Result<Favorite, String> {
-    let state = state.lock().await;
-
-    // Download both GIF (for clipboard) and MP4 (for display)
+    state: tauri::State<'_, AppState>,
+) -> CommandResult<Favorite> {
     let (gif_path, mp4_path) = state
         .downloader
         .download_from_klipy(&gif_url, mp4_url.as_deref(), &source_id)
-        .await
-        .map_err(|e| format!("Failed to download media: {}", e))?;
+        .await?;
 
-    // Get file size of GIF
+    let filename = gif_path
+        .file_name()
+        .ok_or_else(|| CommandError::InvalidArgument("downloaded file has no name".into()))?
+        .to_string_lossy()
+        .into_owned();
+
     let file_size = Downloader::get_file_size(&gif_path)
         .await
         .ok()
         .map(|s| s as i64);
 
-    // Create favorite with both GIF and MP4 paths
     let mut favorite = Favorite::new(
-        title.clone(),
-        Some(gif_path.to_string_lossy().to_string()), // GIF for clipboard
+        filename,
+        Some(gif_path.to_string_lossy().into_owned()),
         MediaType::Gif,
     )
-    .with_gif_url(gif_url.clone()) // Keep URL as backup
+    .with_gif_url(gif_url)
     .with_dimensions(width, height)
-    .with_source(Source::Klipy, Some(source_id), Some(source_url));
+    .with_source(Source::Klipy, Some(source_id), source_url);
 
-    favorite.mp4_filepath = mp4_path.map(|p| p.to_string_lossy().to_string()); // MP4 for display
+    favorite.mp4_filepath = mp4_path.map(|p| p.to_string_lossy().into_owned());
     favorite.file_size = file_size;
+    favorite.description = Some(title);
 
-    // Save to database
-    let favorites_db = FavoritesDb::new(state.db.pool());
-    let id = favorites_db
-        .create(&favorite)
-        .await
-        .map_err(|e| format!("Failed to save favorite: {}", e))?;
-
+    let id = state.db.favorites().create(&favorite).await?;
     favorite.id = Some(id);
-
     Ok(favorite)
 }

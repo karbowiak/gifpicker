@@ -1,7 +1,12 @@
 use anyhow::{Context, Result};
 use sqlx::SqlitePool;
+use uuid::Uuid;
 
 use crate::models::Settings;
+
+/// Settings-table key for the per-install Klipy `customer_id`. Not part of
+/// `Settings` because it's never user-editable — generated once, kept forever.
+const CUSTOMER_ID_KEY: &str = "klipy_customer_id";
 
 pub struct SettingsDb<'a> {
     pool: &'a SqlitePool,
@@ -10,6 +15,29 @@ pub struct SettingsDb<'a> {
 impl<'a> SettingsDb<'a> {
     pub fn new(pool: &'a SqlitePool) -> Self {
         Self { pool }
+    }
+
+    /// Read the persisted Klipy customer_id, generating one on first call.
+    /// Stable across launches; reset only by clearing the settings table.
+    pub async fn get_or_create_customer_id(&self) -> Result<String> {
+        let existing: Option<(String,)> =
+            sqlx::query_as("SELECT value FROM settings WHERE key = ?")
+                .bind(CUSTOMER_ID_KEY)
+                .fetch_optional(self.pool)
+                .await
+                .context("Failed to read customer_id")?;
+
+        if let Some((value,)) = existing {
+            // Stored as a JSON string (matches the rest of the table's format).
+            if let Ok(id) = serde_json::from_str::<String>(&value) {
+                return Ok(id);
+            }
+        }
+
+        let id = Uuid::new_v4().to_string();
+        self.update_key(CUSTOMER_ID_KEY, serde_json::to_string(&id)?)
+            .await?;
+        Ok(id)
     }
 
     pub async fn get(&self) -> Result<Settings> {
@@ -55,6 +83,10 @@ impl<'a> SettingsDb<'a> {
                     settings.clipboard_mode =
                         serde_json::from_str(&value).unwrap_or(settings.clipboard_mode)
                 }
+                "clipboard_format" => {
+                    settings.clipboard_format =
+                        serde_json::from_str(&value).unwrap_or(settings.clipboard_format)
+                }
                 "show_ads" => {
                     settings.show_ads = serde_json::from_str(&value).unwrap_or(settings.show_ads)
                 }
@@ -99,6 +131,10 @@ impl<'a> SettingsDb<'a> {
             (
                 "clipboard_mode",
                 serde_json::to_string(&settings.clipboard_mode)?,
+            ),
+            (
+                "clipboard_format",
+                serde_json::to_string(&settings.clipboard_format)?,
             ),
             ("show_ads", serde_json::to_string(&settings.show_ads)?),
         ];

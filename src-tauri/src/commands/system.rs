@@ -1,6 +1,6 @@
-use tauri::command;
+use crate::commands::{CommandError, CommandResult};
 
-#[command]
-pub async fn open_url(url: String) -> Result<(), String> {
-    open::that(url).map_err(|e| e.to_string())
+#[tauri::command]
+pub async fn open_url(url: String) -> CommandResult<()> {
+    open::that(url).map_err(CommandError::Io)
 }
