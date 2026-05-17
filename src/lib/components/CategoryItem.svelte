@@ -13,21 +13,13 @@
   let containerElement: HTMLDivElement;
   let videoElement: HTMLVideoElement;
   let observer: IntersectionObserver;
-  let isVisible = false;
-
-  // Grid row span - categories are square-ish
-  const ROW_HEIGHT = 10;
-  $: aspectRatio = category.width && category.height ? category.width / category.height : 1;
-  $: rowSpan = Math.ceil((150 / aspectRatio) / ROW_HEIGHT) + 1;
 
   onMount(() => {
-    const scrollContainer = containerElement?.closest('.masonry-layout');
-    
+    const scrollContainer = containerElement?.closest(".masonry-layout, .categories-container");
+
     observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
-          isVisible = entry.isIntersecting;
-          
           if (videoElement) {
             if (entry.isIntersecting) {
               videoElement.play().catch(() => {});
@@ -58,7 +50,6 @@
   bind:this={containerElement}
   class="category-item"
   class:selected
-  style="grid-row: span {rowSpan};"
   on:click={handleClick}
   on:mouseenter={onHover}
   on:mouseleave={onLeave}
@@ -66,34 +57,35 @@
   tabindex="0"
   on:keydown={(e) => e.key === "Enter" && handleClick()}
 >
-  <div class="media-wrapper">
-    {#if category.mp4_url}
-      <video
-        bind:this={videoElement}
-        src={category.mp4_url}
-        class="media"
-        autoplay
-        loop
-        muted
-        playsinline
-      ></video>
-    {:else}
-      <img
-        src={category.gif_url}
-        alt={category.name}
-        class="media"
-      />
-    {/if}
+  {#if category.mp4_url}
+    <video
+      bind:this={videoElement}
+      src={category.mp4_url}
+      class="media"
+      autoplay
+      loop
+      muted
+      playsinline
+    ></video>
+  {:else}
+    <img
+      src={category.gif_url}
+      alt={category.name}
+      class="media"
+    />
+  {/if}
 
-    <div class="overlay">
-      <span class="category-name">{category.name}</span>
-    </div>
-  </div>
+  <!-- Uniform dark scrim so the centered title is legible regardless of the
+       underlying gif's brightness. Mirrors Discord's category-picker style. -->
+  <div class="scrim"></div>
+
+  <span class="category-name">{category.name}</span>
 </div>
 
 <style>
   .category-item {
     position: relative;
+    aspect-ratio: 16 / 10;
     cursor: pointer;
     border-radius: 8px;
     overflow: hidden;
@@ -111,39 +103,39 @@
     z-index: 10;
   }
 
-  .media-wrapper {
-    position: relative;
-    width: 100%;
-    height: 100%;
-  }
-
   .media {
-    display: block;
+    position: absolute;
+    inset: 0;
     width: 100%;
     height: 100%;
     object-fit: cover;
+    display: block;
   }
 
-  .overlay {
+  .scrim {
     position: absolute;
     inset: 0;
-    background: linear-gradient(
-      to top,
-      rgba(0, 0, 0, 0.8) 0%,
-      rgba(0, 0, 0, 0.2) 50%,
-      transparent 100%
-    );
-    display: flex;
-    align-items: flex-end;
-    justify-content: center;
-    padding: 12px;
+    background: rgba(0, 0, 0, 0.45);
+    transition: background 0.15s ease;
+  }
+
+  .category-item:hover .scrim {
+    background: rgba(0, 0, 0, 0.25);
   }
 
   .category-name {
-    font-size: 14px;
-    font-weight: 600;
-    color: white;
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px;
     text-align: center;
-    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+    font-size: 15px;
+    font-weight: 700;
+    color: white;
+    text-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
+    text-transform: lowercase;
+    pointer-events: none;
   }
 </style>

@@ -90,6 +90,14 @@ impl<'a> SettingsDb<'a> {
                 "show_ads" => {
                     settings.show_ads = serde_json::from_str(&value).unwrap_or(settings.show_ads)
                 }
+                "tile_size" => {
+                    settings.tile_size =
+                        serde_json::from_str(&value).unwrap_or(settings.tile_size)
+                }
+                "always_on_top" => {
+                    settings.always_on_top =
+                        serde_json::from_str(&value).unwrap_or(settings.always_on_top)
+                }
                 _ => {}
             }
         }
@@ -137,6 +145,11 @@ impl<'a> SettingsDb<'a> {
                 serde_json::to_string(&settings.clipboard_format)?,
             ),
             ("show_ads", serde_json::to_string(&settings.show_ads)?),
+            ("tile_size", serde_json::to_string(&settings.tile_size)?),
+            (
+                "always_on_top",
+                serde_json::to_string(&settings.always_on_top)?,
+            ),
         ];
 
         for (key, value) in pairs {

@@ -39,11 +39,20 @@ export function nextIndex(
   }
 }
 
-// Column count for the current window width. Mirrors the CSS breakpoints in
+import type { TileSize } from '$lib/types';
+
+// Column counts per tile size and breakpoint. Mirrors the CSS in
 // MasonryLayout — keep both in sync if you change one.
-export function gridColumnsForWidth(width: number): number {
-  if (width <= 400) return 1;
-  if (width <= 600) return 2;
-  if (width <= 900) return 3;
-  return 4;
+const COLS_BY_SIZE: Record<TileSize, { desktop: number; tablet: number; mobile: number; narrow: number }> = {
+  small:  { desktop: 6, tablet: 5, mobile: 3, narrow: 1 },
+  medium: { desktop: 4, tablet: 3, mobile: 2, narrow: 1 },
+  large:  { desktop: 3, tablet: 2, mobile: 2, narrow: 1 },
+};
+
+export function gridColumnsForWidth(width: number, size: TileSize = 'medium'): number {
+  const cols = COLS_BY_SIZE[size] ?? COLS_BY_SIZE.medium;
+  if (width <= 400) return cols.narrow;
+  if (width <= 600) return cols.mobile;
+  if (width <= 900) return cols.tablet;
+  return cols.desktop;
 }

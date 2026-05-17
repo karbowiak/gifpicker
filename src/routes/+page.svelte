@@ -6,6 +6,7 @@
   import MasonryLayout from "$lib/components/MasonryLayout.svelte";
   import CategoryItem from "$lib/components/CategoryItem.svelte";
   import SearchSuggestionsTicker from "$lib/components/SearchSuggestionsTicker.svelte";
+  import LandingChips from "$lib/components/LandingChips.svelte";
   import Toast from "$lib/components/Toast.svelte";
   import ContextMenu from "$lib/components/ContextMenu.svelte";
   import Settings from "$lib/components/Settings.svelte";
@@ -118,25 +119,28 @@
 
     if (!result.ok) {
       showToast(result.reason, "error");
-      return;
+      return false;
     }
 
     if (isFavorite(item) && item.id) {
       await invoke("increment_use_count", { id: item.id });
     }
-    showToast(
-      result.via === "url" ? "URL copied to clipboard!" : "Copied to clipboard!",
-      "success",
-    );
+    if (result.via === "url") {
+      showToast("URL copied to clipboard!", "success");
+    }
+    return true;
   }
 
-  async function handleItemClick(item: Favorite | KlipyResultItem) {
-    if (isKlipyAd(item)) return; // ad clicks are handled inside the iframe
-    try {
-      await copyItemToClipboard(item as Favorite | KlipyGifResult);
-
-      if ($settings?.close_after_selection ?? true) {
-        // Reset state before closing so the next open lands on favorites.
+  // Post-copy hook used by MediaItem — the tile has already done the copy and
+  // painted its own checkmark; we just run the close-after-selection flow and
+  // bump the usage counter.
+  async function handleAfterTileCopy(item: Favorite | KlipyGifResult) {
+    if (isFavorite(item) && item.id) {
+      await invoke("increment_use_count", { id: item.id });
+    }
+    if ($settings?.close_after_selection ?? true) {
+      // Small grace so the checkmark pulse plays before the window snaps shut.
+      setTimeout(async () => {
         clearSearch();
         await performSearch("");
         try {
@@ -144,11 +148,17 @@
         } catch (error) {
           console.error("Failed to close window:", error);
         }
-      }
-    } catch (error) {
-      console.error("Failed to copy to clipboard:", error);
-      showToast("Failed to copy to clipboard", "error");
+      }, 220);
     }
+  }
+
+  // Used by non-tile callers (LandingChips, etc) — they don't run their own
+  // copy, so we do it here. The shared MediaItem flow lives separately so the
+  // checkmark animation stays local to the clicked tile.
+  async function handleItemClick(item: Favorite | KlipyResultItem) {
+    if (isKlipyAd(item)) return; // ad clicks are handled inside the iframe
+    const ok = await copyItemToClipboard(item as Favorite | KlipyGifResult);
+    if (ok) await handleAfterTileCopy(item as Favorite | KlipyGifResult);
   }
 
   async function toggleFavorite() {
@@ -209,7 +219,7 @@
     const direction = keyToDirection(event.key);
     if (direction) {
       event.preventDefault();
-      const cols = gridColumnsForWidth(window.innerWidth);
+      const cols = gridColumnsForWidth(window.innerWidth, $settings?.tile_size ?? 'medium');
       const target = nextIndex(current, direction, itemCount, cols);
       if (target === null) return;
       // Skip ad slots so keyboard nav only lands on selectable content.
@@ -286,10 +296,9 @@
   <SearchBar bind:this={searchBarComponent} />
 
   {#if isLoading}
-    <div class="loading-container">
-      <div class="spinner"></div>
-      <p>Loading...</p>
-    </div>
+    <!-- Initial-load skeleton instead of a centered spinner — feels faster
+         because the layout shape lands before the data does. -->
+    <MasonryLayout items={[]} showSkeleton />
   {:else if $viewMode === 'categories'}
     <div class="categories-container">
       {#if $currentCategory}
@@ -324,10 +333,18 @@
       <SearchSuggestionsTicker onSelect={(s) => searchBarComponent?.setQuery(s)} />
     {/if}
 
+    {#if $viewMode === 'favorites'}
+      <LandingChips
+        onSearchChip={(q) => searchBarComponent?.setQuery(q)}
+        onFavoriteChip={(fav) => handleItemClick(fav)}
+      />
+    {/if}
+
     <MasonryLayout
       items={allItems}
-      onItemClick={handleItemClick}
+      onItemClick={handleAfterTileCopy}
       onScrollNearEnd={$viewMode !== 'favorites' ? handleScrollNearEnd : undefined}
+      showSkeleton={$isSearching && allItems.length === 0 && $viewMode !== 'favorites'}
     />
 
     {#if $isLoadingMore}
@@ -418,36 +435,6 @@
     overflow: hidden;
   }
 
-  .loading-container {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    color: var(--text-secondary);
-  }
-
-  .spinner {
-    width: 40px;
-    height: 40px;
-    border: 3px solid var(--bg-tertiary);
-    border-top-color: var(--accent-color);
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
-    margin-bottom: 12px;
-  }
-
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
-  }
-
-  .loading-container p {
-    font-size: 14px;
-    font-weight: 500;
-  }
-
   .loading-more {
     position: fixed;
     bottom: 20px;
@@ -474,6 +461,10 @@
     border-top-color: var(--accent-color);
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
   }
 
   .klipy-attribution {
@@ -505,20 +496,15 @@
     padding: 8px;
   }
 
+  /* Auto-fill keeps the same compact "Discord category picker" feel at any
+     window width — tiles flow into 4–5 columns at default sizing. */
   .categories-grid {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    grid-auto-rows: 10px;
-    gap: 8px;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 6px;
   }
 
-  @media (max-width: 900px) {
-    .categories-grid {
-      grid-template-columns: repeat(3, 1fr);
-    }
-  }
-
-  @media (max-width: 600px) {
+  @media (max-width: 400px) {
     .categories-grid {
       grid-template-columns: repeat(2, 1fr);
     }

@@ -48,6 +48,13 @@
   export function setQuery(newQuery: string) {
     query = newQuery;
     inlineSuggestion = "";
+    searchQueryStore.set(newQuery);
+    if (newQuery.trim()) {
+      clearAutocomplete();
+      viewMode.set('search');
+      performSearch(newQuery);
+      inputElement?.blur();
+    }
   }
 
   export function clear() {

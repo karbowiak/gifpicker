@@ -1,6 +1,7 @@
 import { writable, get } from 'svelte/store';
 import { invoke } from '@tauri-apps/api/core';
 import { settings } from '$lib/stores/settings';
+import { recentSearches } from '$lib/stores/recent';
 import type { Favorite, KlipyGifResult, KlipySearchResults, KlipyCategory, KlipyCategoriesResult, SearchResult, ViewMode } from '$lib/types';
 import { isKlipyGif } from '$lib/types';
 
@@ -97,6 +98,9 @@ export async function performSearch(query: string) {
 
     totalCount = result.total_count;
     currentPage = result.page;
+
+    // Only record once results came back — avoids storing typos that bounced.
+    if (result.items.length > 0) recentSearches.record(query);
   } catch (error) {
     console.error('Search failed:', error);
     searchError.set(error as string);

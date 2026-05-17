@@ -18,6 +18,8 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_window_state::Builder::new().build())
+        .plugin(tauri_plugin_drag::init())
         .setup(|app| {
             // macOS: keep the app out of the dock — it's a menu-bar utility.
             #[cfg(target_os = "macos")]
@@ -116,7 +118,8 @@ pub fn run() {
                 })
                 .build(app)?;
 
-            // Register the user's saved hotkey on startup.
+            // Register the user's saved hotkey on startup, and apply the
+            // persisted always-on-top preference to the window.
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 if let Some(state) = app_handle.try_state::<AppState>() {
@@ -130,6 +133,10 @@ pub fn run() {
                                     }
                                 },
                             );
+                        }
+
+                        if let Some(window) = app_handle.get_webview_window("main") {
+                            let _ = window.set_always_on_top(settings.always_on_top);
                         }
                     }
                 }
@@ -197,6 +204,7 @@ pub fn run() {
             commands::close_window,
             commands::show_window,
             commands::toggle_window,
+            commands::set_always_on_top,
             // Hotkey
             commands::register_hotkey,
             commands::unregister_hotkey,

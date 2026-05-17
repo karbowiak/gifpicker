@@ -13,7 +13,9 @@ const defaultSettings: Settings = {
   theme: 'system',
   clipboard_mode: 'file',
   clipboard_format: 'gif',
-  show_ads: true
+  show_ads: true,
+  tile_size: 'medium',
+  always_on_top: false
 };
 
 // Settings store

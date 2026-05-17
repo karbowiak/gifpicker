@@ -5,6 +5,7 @@ export type Source = 'klipy' | 'local' | 'upload';
 export type Theme = 'light' | 'dark' | 'system';
 export type ClipboardMode = 'file' | 'url';
 export type ClipboardFormat = 'gif' | 'mp4';
+export type TileSize = 'small' | 'medium' | 'large';
 export type ViewMode = 'favorites' | 'trending' | 'categories' | 'category' | 'search';
 
 export interface Favorite {
@@ -39,6 +40,8 @@ export interface Settings {
   clipboard_mode: ClipboardMode;
   clipboard_format: ClipboardFormat;
   show_ads: boolean;
+  tile_size: TileSize;
+  always_on_top: boolean;
 }
 
 export interface KlipyGifResult {

@@ -5,6 +5,7 @@
     "": {
       "name": "gifpicker",
       "dependencies": {
+        "@crabnebula/tauri-plugin-drag": "^2.1.0",
         "@tauri-apps/api": "^2",
         "@tauri-apps/plugin-opener": "^2",
       },
@@ -21,6 +22,8 @@
     },
   },
   "packages": {
+    "@crabnebula/tauri-plugin-drag": ["@crabnebula/tauri-plugin-drag@2.1.0", "", { "dependencies": { "@tauri-apps/api": "^2.0.0" } }, "sha512-LnUXAZwQt1cdMoGDLJ6ogW9wFCYServCZXlGadS7CA+CZ9eXS7L+Q7QyQW6g/zGw9YI2MwKFqf1aSNBGyWw+OA=="],
+
     "@esbuild/aix-ppc64": ["@esbuild/aix-ppc64@0.25.10", "", { "os": "aix", "cpu": "ppc64" }, "sha512-0NFWnA+7l41irNuaSVlLfgNT12caWJVLzp5eAVhZ0z1qpxbockccEt3s+149rE64VUI3Ml2zt8Nv5JVc4QXTsw=="],
 
     "@esbuild/android-arm": ["@esbuild/android-arm@0.25.10", "", { "os": "android", "cpu": "arm" }, "sha512-dQAxF1dW1C3zpeCDc5KqIYuZ1tgAdRXNoZP7vkBIRtKZPYe2xVr/d3SkirklCHudW1B45tGiUlz2pUWDfbDD4w=="],

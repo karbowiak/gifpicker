@@ -4,16 +4,21 @@
   import { showToast } from "$lib/stores/ui";
   import { invoke } from "@tauri-apps/api/core";
   import { onDestroy } from "svelte";
+  import { fly, fade } from "svelte/transition";
+  import { cubicOut } from "svelte/easing";
   import type {
     ClipboardFormat,
     ClipboardMode,
     Settings as AppSettings,
+    TileSize,
   } from "$lib/types";
   import HotkeyCapture from "$lib/components/HotkeyCapture.svelte";
 
   let closeAfterSelection = true;
   let clipboardMode: ClipboardMode = "file";
   let clipboardFormat: ClipboardFormat = "gif";
+  let tileSize: TileSize = "medium";
+  let alwaysOnTop = false;
   let hotkey = "";
   let showAds = true;
   let currentSettings: AppSettings | null = null;
@@ -25,6 +30,8 @@
       closeAfterSelection = $settings.close_after_selection ?? true;
       clipboardMode = $settings.clipboard_mode || "file";
       clipboardFormat = $settings.clipboard_format || "gif";
+      tileSize = $settings.tile_size || "medium";
+      alwaysOnTop = $settings.always_on_top ?? false;
       hotkey = $settings.hotkey || "Cmd+G";
       showAds = $settings.show_ads ?? true;
     }
@@ -46,6 +53,8 @@
         close_after_selection: closeAfterSelection,
         clipboard_mode: clipboardMode,
         clipboard_format: clipboardFormat,
+        tile_size: tileSize,
+        always_on_top: alwaysOnTop,
         hotkey: hotkey.trim(),
         show_ads: showAds,
       };
@@ -59,6 +68,14 @@
         showToast("Settings saved but hotkey registration failed", "error");
         isSaving = false;
         return;
+      }
+
+      try {
+        await invoke("set_always_on_top", { value: alwaysOnTop });
+      } catch (error) {
+        // Non-fatal — the setting is persisted, the window state just won't
+        // reflect it until restart. Log but don't fail the save.
+        console.error("Failed to apply always-on-top:", error);
       }
 
       showToast("Settings saved!", "success");
@@ -107,14 +124,17 @@
 <div
   class="settings-overlay"
   on:click={handleBackdropClick}
+  transition:fade={{ duration: 150 }}
   role="presentation"
 >
-  <div class="settings-modal">
+  <aside
+    class="settings-panel"
+    transition:fly={{ x: 360, duration: 220, easing: cubicOut }}
+    aria-label="Settings"
+  >
     <div class="settings-header">
       <h2>Settings</h2>
-      <button class="close-btn" on:click={closeModal} aria-label="Close"
-        >×</button
-      >
+      <button class="close-btn" on:click={closeModal} aria-label="Close">×</button>
     </div>
 
     <div class="settings-content">
@@ -123,6 +143,36 @@
           <input type="checkbox" bind:checked={closeAfterSelection} />
           <span>Close window after copying</span>
         </label>
+      </div>
+
+      <div class="setting-group">
+        <label class="checkbox-label">
+          <input type="checkbox" bind:checked={alwaysOnTop} />
+          <span>Always on top</span>
+        </label>
+        <span class="setting-hint">Keep the picker above other windows.</span>
+      </div>
+
+      <div class="setting-group">
+        <label for="tile-size">Tile Size</label>
+        <div class="segmented">
+          <button
+            type="button"
+            class:active={tileSize === "small"}
+            on:click={() => (tileSize = "small")}
+          >Small</button>
+          <button
+            type="button"
+            class:active={tileSize === "medium"}
+            on:click={() => (tileSize = "medium")}
+          >Medium</button>
+          <button
+            type="button"
+            class:active={tileSize === "large"}
+            on:click={() => (tileSize = "large")}
+          >Large</button>
+        </div>
+        <span class="setting-hint">Smaller tiles = more per screen.</span>
       </div>
 
       <div class="setting-group">
@@ -167,50 +217,46 @@
       </div>
 
       <div class="attribution">
-        GIFs powered by <a href="https://klipy.com" target="_blank">Klipy</a>
+        GIFs powered by <a href="https://klipy.com" target="_blank" rel="noopener">Klipy</a>
       </div>
     </div>
 
     <div class="settings-footer">
-      <button class="btn secondary" on:click={closeModal} disabled={isSaving}
-        >Cancel</button
-      >
+      <button class="btn secondary" on:click={closeModal} disabled={isSaving}>Cancel</button>
       <button class="btn primary" on:click={saveSettings} disabled={isSaving}>
         {isSaving ? "Saving..." : "Save"}
       </button>
     </div>
-  </div>
+  </aside>
 </div>
 
 <style>
   .settings-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.6);
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    background: rgba(0, 0, 0, 0.35);
+    backdrop-filter: blur(2px);
     z-index: 1000;
-    backdrop-filter: blur(4px);
+    display: flex;
+    justify-content: flex-end;
   }
 
-  .settings-modal {
+  .settings-panel {
     background: var(--bg-secondary);
-    border-radius: 8px;
-    width: 90%;
-    max-width: 400px;
-    max-height: 90vh;
-    overflow: hidden;
+    width: 360px;
+    max-width: 95vw;
+    height: 100%;
     display: flex;
     flex-direction: column;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    box-shadow: -8px 0 32px rgba(0, 0, 0, 0.35);
+    border-left: 1px solid var(--border-color);
   }
 
   .settings-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 16px;
+    padding: 14px 16px;
     border-bottom: 1px solid var(--border-color);
   }
 
@@ -230,9 +276,7 @@
     padding: 0;
   }
 
-  .close-btn:hover {
-    color: var(--text-primary);
-  }
+  .close-btn:hover { color: var(--text-primary); }
 
   .settings-content {
     flex: 1;
@@ -290,6 +334,32 @@
 
   .checkbox-label span {
     color: var(--text-primary);
+  }
+
+  /* Segmented control for tile size — feels lighter than a select for 3 fixed
+     choices and the active state is visible at a glance. */
+  .segmented {
+    display: flex;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .segmented button {
+    flex: 1;
+    padding: 7px 0;
+    background: var(--bg-primary);
+    color: var(--text-secondary);
+    border: none;
+    border-right: 1px solid var(--border-color);
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+  .segmented button:last-child { border-right: none; }
+  .segmented button:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+  .segmented button.active {
+    background: var(--accent-color);
+    color: white;
   }
 
   .setting-group.support {

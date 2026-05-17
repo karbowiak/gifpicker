@@ -15,6 +15,16 @@ pub struct Settings {
     /// to Gif when the item has no MP4 source.
     pub clipboard_format: ClipboardFormat,
     pub show_ads: bool,
+    pub tile_size: TileSize,
+    pub always_on_top: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum TileSize {
+    Small,
+    Medium,
+    Large,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -55,6 +65,8 @@ impl Default for Settings {
             clipboard_mode: ClipboardMode::File,
             clipboard_format: ClipboardFormat::Gif,
             show_ads: true,
+            tile_size: TileSize::Medium,
+            always_on_top: false,
         }
     }
 }

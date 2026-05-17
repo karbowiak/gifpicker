@@ -59,3 +59,12 @@ pub async fn toggle_window(app: AppHandle) -> CommandResult<()> {
     }
     Ok(())
 }
+
+#[tauri::command]
+pub async fn set_always_on_top(app: AppHandle, value: bool) -> CommandResult<()> {
+    let Some(window) = app.get_webview_window("main") else {
+        return Ok(());
+    };
+    window.set_always_on_top(value)?;
+    Ok(())
+}
