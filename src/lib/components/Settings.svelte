@@ -2,6 +2,7 @@
   import { showSettings } from "$lib/stores/ui";
   import { settings } from "$lib/stores/settings";
   import { showToast } from "$lib/stores/ui";
+  import { updater } from "$lib/stores/updater";
   import { invoke } from "@tauri-apps/api/core";
   import { onDestroy } from "svelte";
   import { fly, fade } from "svelte/transition";
@@ -117,6 +118,29 @@
       console.error("Failed to restore global hotkey:", error);
     }
   }
+
+  // Non-silent: surface errors and toast "you're on the latest" when no update.
+  async function checkForUpdates() {
+    const before = $updater.update;
+    await updater.checkForUpdate({ silent: false });
+    const after = $updater.update;
+    const err = $updater.error;
+    if (err) {
+      showToast(err, "error");
+    } else if (!after && !before) {
+      showToast("You're on the latest version", "info");
+    }
+    // If after is non-null the dialog opens itself — no toast needed.
+  }
+
+  function formatLastChecked(ts: number | null): string {
+    if (!ts) return "never";
+    const diffSec = Math.round((Date.now() - ts) / 1000);
+    if (diffSec < 60) return "just now";
+    if (diffSec < 3600) return `${Math.round(diffSec / 60)}m ago`;
+    if (diffSec < 86400) return `${Math.round(diffSec / 3600)}h ago`;
+    return new Date(ts).toLocaleDateString();
+  }
 </script>
 
 <svelte:window on:keydown={handleKeyDown} />
@@ -214,6 +238,21 @@
           <span>Support development (show ads)</span>
         </label>
         <span class="setting-hint">Subtle inline ads from Klipy</span>
+      </div>
+
+      <div class="setting-group">
+        <span class="group-label">Updates</span>
+        <div class="update-row">
+          <button
+            type="button"
+            class="btn secondary update-btn"
+            on:click={checkForUpdates}
+            disabled={$updater.checking}
+          >
+            {$updater.checking ? "Checking…" : "Check for updates"}
+          </button>
+          <span class="setting-hint">Last checked {formatLastChecked($updater.lastChecked)}</span>
+        </div>
       </div>
 
       <div class="attribution">
@@ -366,6 +405,22 @@
     background: var(--accent-color-light);
     padding: 12px;
     border-radius: 6px;
+  }
+
+  .group-label {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+  }
+
+  .update-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .update-btn {
+    padding: 6px 12px;
+    font-size: 12px;
   }
 
   .attribution {

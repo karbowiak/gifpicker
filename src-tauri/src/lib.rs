@@ -20,6 +20,7 @@ pub fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_window_state::Builder::new().build())
         .plugin(tauri_plugin_drag::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             // macOS: keep the app out of the dock — it's a menu-bar utility.
             #[cfg(target_os = "macos")]

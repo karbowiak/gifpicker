@@ -10,6 +10,8 @@
   import Toast from "$lib/components/Toast.svelte";
   import ContextMenu from "$lib/components/ContextMenu.svelte";
   import Settings from "$lib/components/Settings.svelte";
+  import UpdateDialog from "$lib/components/UpdateDialog.svelte";
+  import { updater } from "$lib/stores/updater";
   import {
     searchResults,
     searchQuery,
@@ -273,6 +275,12 @@
       const { getCurrentWindow } = await import("@tauri-apps/api/window");
       const currentWindow = getCurrentWindow();
 
+      // Silent auto-check 3s after launch — won't toast/dialog if no release
+      // metadata is published yet, but will surface a real update if available.
+      setTimeout(() => {
+        void updater.checkForUpdate({ silent: true });
+      }, 3000);
+
       await currentWindow.onFocusChanged(({ payload: focused }) => {
         if (!focused) return;
         // Reset everything to a known-clean state on each show.
@@ -368,6 +376,7 @@
 
   <Toast />
   <ContextMenu />
+  <UpdateDialog />
 
   {#if $showSettings}
     <Settings />
